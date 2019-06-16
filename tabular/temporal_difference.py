@@ -21,30 +21,34 @@ class StateActionValue(object):
 
 class StateActionValueTable(object):
 
-    def __init__(self, default_value=0.0):
+    def __init__(self, default_value=0.0, possible_actions=None):
         self.q = {}
         self.default_value = default_value
+        self.possible_actions = possible_actions if possible_actions else []
+
+    def _init_state_if_not_set(self, state, action=None):
+        if state not in self.q:
+            self.q[state] = {a: self.default_value for a in self.possible_actions}
+            if action:
+                self.q[state] = {action: self.default_value}
 
     def get_q_max(self, state):
         q_values = self.get_q_values_from_state(state)
-        q_values = sorted(q_values.items(), key= lambda entry: -entry)  # Entry with highest value is first
+        q_values = sorted(q_values.items(), key=lambda entry: -entry)  # Entry with highest value is first
         if len(q_values) == 0:
             return None
         return q_values[0]
 
     def get_q_values_from_state(self, state):
-        if state not in self.q:
-            self.q[state] = {}
+        self._init_state_if_not_set(state)
         return self.q[state]
 
     def get_q_value(self, state, action):
-        if state not in self.q:
-            self.q[state] = {action: self.default_value}
+        self._init_state_if_not_set(state, action)
         return self.q[state][action]
 
     def set_q_value(self, state, action, value):
-        if state not in self.q:
-            self.q[state] = {}
+        self._init_state_if_not_set(state)
         self.q[state][action] = value
 
 
