@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import gym
 import numpy as np
+import re
 import heapq
 
 
@@ -33,7 +34,7 @@ class StateActionValueTable(object):
         if state not in self.q:
             self.q[state] = {a: self.default_value for a in self.possible_actions}
         if action:
-            self.q[state] = {action: self.default_value}
+            self.q[state][action] = self.default_value
 
     def __setitem__(self, key, value):
         if type(key) is not tuple or len(key) != 2:
@@ -98,7 +99,7 @@ def epsilon_greedy_from_q(env: gym.Env, q: StateActionValueTable, state, epsilon
     if np.random.uniform(1) <= epsilon:
         return env.action_space.sample()
     else:
-        action = q.get_q_max(state)
+        action = q.get_q_max(state)[0]
 
         if action is None:
             action = env.action_space.sample()
@@ -108,39 +109,76 @@ def epsilon_greedy_from_q(env: gym.Env, q: StateActionValueTable, state, epsilon
 def epsilon_greedy_tabular_sarsa(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
     q = StateActionValueTable()
 
+    discrete_pattern = re.compile(r"Discrete\(([0-9]+)\)")
+    match = discrete_pattern.match(env.action_space.__repr__())
+    if match:
+        q.possible_actions = list(range(int(match.group(1))))
+
     i = 0
     while i < num_iterations:
         state = env.reset()
+        state = str(state)
         action = epsilon_greedy_from_q(env, q, state, epsilon)
         done = False
 
         while not done:
             new_state, reward, done, info = env.step(action)
+            new_state = str(new_state)
 
             new_action = epsilon_greedy_from_q(env, q, new_state, epsilon)
 
-            td_error = (reward + gamma * q.get(new_state, new_action) - q.get(state, action))
-            new_q_val = q.get(state, action) + alpha * td_error
-            q.set(state, action, new_q_val)
+            td_error = (reward + gamma * q[new_state, new_action] - q[state, action])
+            new_q_val = q[state, action] + alpha * td_error
+            q[state, action] = new_q_val
 
             state = new_state
             action = new_action
         i += 1
 
-    pass
+        if i % 100 == 0:
+            print("{} iterations done".format(i))
+
+    return q
+
+
+def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
+    q = StateActionValueTable()
+
+    discrete_pattern = re.compile(r"Discrete\(([0-9]+)\)")
+    match = discrete_pattern.match(env.action_space.__repr__())
+    if match:
+        q.possible_actions = list(range(int(match.group(1))))
+
+    i = 0
+    while i < num_iterations:
+        state = env.reset()
+        state = str(state)
+        done = False
+
+        while not done:
+            action = epsilon_greedy_from_q(env, q, state, epsilon)
+            new_state, reward, done, info = env.step(action)
+            new_state = str(new_state)
+
+            q_max = q.get_q_max(new_state)[0]
+            td_error = (reward + gamma * q_max - q[state, action])
+            new_q_val = q[state, action] + alpha * td_error
+            q[state, action] = new_q_val
+
+            state = new_state
+        i += 1
+
+        if i % 100 == 0:
+            print("{} iterations done".format(i))
+
+    return q
 
 
 def main():
     blackjack = gym.make("Blackjack-v0")
 
-    q = StateActionValueTable()
-    q[5, 2] = 5
-    asdf = q[5]
-    bdef = q[5,2]
-    xyz = q[3,4]
-
-    value_function = tabular_td0(blackjack, simple_blackjack_policy, alpha=0.5, gamma=1.0, num_iterations=10 ** 5)
-
+    # q = epsilon_greedy_tabular_sarsa(blackjack)
+    q = tabular_q_learning(blackjack)
     print("")
     pass
 
