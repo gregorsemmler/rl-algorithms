@@ -6,7 +6,6 @@ import heapq
 
 
 # TODO queue has PriorityQueues
-
 class StateActionValue(object):
 
     def __init__(self, state, action):
@@ -33,20 +32,18 @@ class StateActionValueTable(object):
     def _init_state_if_not_set(self, state, action=None):
         if state not in self.q:
             self.q[state] = {a: self.default_value for a in self.possible_actions}
-        if action:
+        if action not in self.q[state] and action is not None:
             self.q[state][action] = self.default_value
 
     def __setitem__(self, key, value):
         if type(key) is not tuple or len(key) != 2:
             raise RuntimeError("Expected state-action pair as key")
-
         state, action = key
         self._init_state_if_not_set(state)
         self.q[state][action] = value
 
     def __getitem__(self, item):
-        if type(item) is not tuple:
-            # state supplied
+        if type(item) is not tuple:  # state was supplied
             self._init_state_if_not_set(item)
             return self.q[item]
         if type(item) is tuple and len(item) == 2:
@@ -65,10 +62,28 @@ class StateActionValueTable(object):
 
 def simple_blackjack_policy(state):
     score, dealer_score, usable_ace = state
-
     if score <= 11:
         return 1
     return 0
+
+
+def proportional_policy_from_q(q: StateActionValueTable, state):
+    """Returns a policy which assigns a probability proportional to the state-action values for a given state"""
+    pairs = sorted(q[state].items(), key=lambda e: e[1])
+    if len(pairs) == 0:
+        return None
+    minimum_val = pairs[0][1]
+    policy = {pair[0]: abs(minimum_val) + pair[1] for pair in pairs}  # shift so result is non negative
+    total = sum(e[1] for e in policy.items())
+    if total == 0.0:  # give equal probability to all actions
+        return {pair[0]: 0.5 for pair in pairs}
+    policy = {pair[0]: pair[1] / total for pair in policy.items()}
+    return policy
+
+
+def sample_from_tabular_policy(policy):
+    keys, values = list(zip(*sorted(policy.items(), key=lambda e: -e[1])))
+    return keys[np.random.choice(len(keys), p=values)]
 
 
 # Estimates the value function of a given environment and policy
@@ -174,11 +189,57 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
     return q
 
 
+def tabular_expected_sarsa(env, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
+    """Tabular Expected Sarsa as described in
+    'A Theoretical and Empirical Analysis of Expected Sarsa' by van Seijen et al. (2009)"""
+    q = StateActionValueTable()
+
+    discrete_pattern = re.compile(r"Discrete\(([0-9]+)\)")
+    match = discrete_pattern.match(env.action_space.__repr__())
+    if match:
+        q.possible_actions = list(range(int(match.group(1))))
+
+    i = 0
+    while i < num_iterations:
+        state = env.reset()
+        state = str(state)
+        done = False
+
+        while not done:
+            policy = proportional_policy_from_q(q, state)
+            action = sample_from_tabular_policy(policy)
+
+            new_state, reward, done, info = env.step(action)
+            new_state = str(new_state)
+
+            value_new_state = 0.0
+            policy_new_state = proportional_policy_from_q(q, new_state)
+            for new_action, probability in policy_new_state.items():
+                value_new_state += q[new_state, new_action] * policy_new_state[new_action]
+
+            td_error = (reward + gamma * value_new_state - q[state, action])
+            new_q_val = q[state, action] + alpha * td_error
+            q[state, action] = new_q_val
+
+            state = new_state
+        i += 1
+
+        if i % 100 == 0:
+            print("{} iterations done".format(i))
+
+    return q
+
+
 def main():
     blackjack = gym.make("Blackjack-v0")
 
     # q = epsilon_greedy_tabular_sarsa(blackjack)
-    q = tabular_q_learning(blackjack)
+    # q = tabular_q_learning(blackjack)
+    q = tabular_expected_sarsa(blackjack)
+
+    # state = list(q.q.keys())[0]
+
+
     print("")
     pass
 
