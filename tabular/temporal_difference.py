@@ -2,10 +2,11 @@
 import gym
 import numpy as np
 import re
+import json
 import heapq
-
-
 # TODO queue has PriorityQueues
+
+
 class StateActionValue(object):
 
     def __init__(self, state, action):
@@ -59,6 +60,17 @@ class StateActionValueTable(object):
             return None
         return q_values[0]
 
+    def to_json_file(self, filename):
+        with open(filename, "w") as f:
+            f.write(json.dumps(self.__dict__))
+
+    def from_json_file(self, filename):
+        with open(filename, "r") as f:
+            content = json.load(f)
+        self.q = content["q"]
+        self.default_value = content["default_value"]
+        self.possible_actions = content["possible_actions"]
+
 
 def simple_blackjack_policy(state):
     score, dealer_score, usable_ace = state
@@ -76,7 +88,7 @@ def proportional_policy_from_q(q: StateActionValueTable, state):
     policy = {pair[0]: abs(minimum_val) + pair[1] for pair in pairs}  # shift so result is non negative
     total = sum(e[1] for e in policy.items())
     if total == 0.0:  # give equal probability to all actions
-        return {pair[0]: 0.5 for pair in pairs}
+        return {pair[0]: 1/len(pairs) for pair in pairs}
     policy = {pair[0]: pair[1] / total for pair in policy.items()}
     return policy
 
@@ -84,6 +96,17 @@ def proportional_policy_from_q(q: StateActionValueTable, state):
 def sample_from_tabular_policy(policy):
     keys, values = list(zip(*sorted(policy.items(), key=lambda e: -e[1])))
     return keys[np.random.choice(len(keys), p=values)]
+
+
+def epsilon_greedy_from_q(env: gym.Env, q: StateActionValueTable, state, epsilon):
+    if np.random.uniform(1) <= epsilon:
+        return env.action_space.sample()
+    else:
+        action = q.get_q_max(state)[0]
+
+        if action is None:
+            action = env.action_space.sample()
+    return action
 
 
 # Estimates the value function of a given environment and policy
@@ -108,17 +131,6 @@ def tabular_td0(env, policy, alpha=0.01, gamma=0.99, num_iterations=10000):
         if i % 100 == 0:
             print("{} iterations done".format(i))
     return v
-
-
-def epsilon_greedy_from_q(env: gym.Env, q: StateActionValueTable, state, epsilon):
-    if np.random.uniform(1) <= epsilon:
-        return env.action_space.sample()
-    else:
-        action = q.get_q_max(state)[0]
-
-        if action is None:
-            action = env.action_space.sample()
-    return action
 
 
 def epsilon_greedy_tabular_sarsa(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
@@ -230,15 +242,39 @@ def tabular_expected_sarsa(env, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
     return q
 
 
+def test_tabular_q_policy(env, q: StateActionValueTable, num_iterations=1, greedy=True):
+    i = 0
+    while i < num_iterations:
+        state = env.reset()
+        state = str(state)
+        done = False
+
+        while not done:
+            env.render()
+
+            if greedy:
+                action = q.get_q_max(state)[0]
+            else:
+                policy = proportional_policy_from_q(q, state)
+                action = sample_from_tabular_policy(policy)
+
+            new_state, reward, done, info = env.step(action)
+            new_state = str(new_state)
+
+            state = new_state
+
+        print("================= DONE ===============")
+        i += 1
+
+
 def main():
-    blackjack = gym.make("Blackjack-v0")
+    environment = gym.make("FrozenLake-v0")
 
-    # q = epsilon_greedy_tabular_sarsa(blackjack)
-    # q = tabular_q_learning(blackjack)
-    q = tabular_expected_sarsa(blackjack)
+    # q = epsilon_greedy_tabular_sarsa(environment)
+    q = tabular_q_learning(environment)
+    # q = tabular_expected_sarsa(environment)
 
-    # state = list(q.q.keys())[0]
-
+    test_tabular_q_policy(environment, q, greedy=False, num_iterations=10 ** 5)
 
     print("")
     pass
