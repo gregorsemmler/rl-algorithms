@@ -7,20 +7,24 @@ import heapq
 # TODO queue has PriorityQueues
 
 
-class StateActionValue(object):
+class EpisodeResult(object):
 
-    def __init__(self, state, action):
-        self.state = state
-        self.action = action
+    def __init__(self, env, start_state):
+        self.env = env
+        self.states = [start_state]
+        self.actions = []
+        self.rewards = []
 
-    def __hash__(self):
-        return hash((self.state, self.action))
+    def append(self, action, reward, state):
+        self.states.append(state)
+        self.actions.append(action)
+        self.rewards.append(reward)
 
-    def __eq__(self, other):
-        return (self.state, self.action) == (other.state, other.action)
-
-    def __ne__(self, other):
-        return not (self == other)
+    def calculate_return(self, gamma):
+        total_return = 0.0
+        for k in range(len(self.rewards)):
+            total_return += gamma ** k * self.rewards[k]
+        return total_return
 
 
 class StateActionValueTable(object):
@@ -176,16 +180,24 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
     if match:
         q.possible_actions = list(range(int(match.group(1))))
 
+    episode_returns = []
+    best_return = float("-inf")
+    best_result = None
+
     i = 0
     while i < num_iterations:
         state = env.reset()
         state = str(state)
         done = False
 
+        episode_result = EpisodeResult(env, state)
+
         while not done:
             action = epsilon_greedy_from_q(env, q, state, epsilon)
             new_state, reward, done, info = env.step(action)
             new_state = str(new_state)
+
+            episode_result.append(action, reward, new_state)
 
             q_max = q.get_q_max(new_state)[0]
             td_error = (reward + gamma * q_max - q[state, action])
@@ -195,10 +207,17 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
             state = new_state
         i += 1
 
+        episode_return = episode_result.calculate_return(gamma)
+        if best_return < episode_return:
+            best_return = episode_return
+            best_result = episode_result
+
+        episode_returns.append(episode_return)
+
         if i % 100 == 0:
             print("{} iterations done".format(i))
 
-    return q
+    return q, episode_returns, best_result
 
 
 def tabular_expected_sarsa(env, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
@@ -271,7 +290,7 @@ def main():
     environment = gym.make("FrozenLake-v0")
 
     # q = epsilon_greedy_tabular_sarsa(environment)
-    q = tabular_q_learning(environment)
+    q, returns, best_result = tabular_q_learning(environment)
     # q = tabular_expected_sarsa(environment)
 
     test_tabular_q_policy(environment, q, greedy=False, num_iterations=10 ** 5)
