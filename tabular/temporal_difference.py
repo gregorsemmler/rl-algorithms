@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
+import collections
+from enum import Enum
+
 import gym
 import numpy as np
 import re
 import json
 import heapq
 # TODO queue has PriorityQueues
+from tensorboardX import SummaryWriter
+
+
+class ActionSelector(Enum):
+    EPSILON_GREEDY = "EPSILON_GREEDY"
+
+
+class TDAlgorithm(Enum):
+    Q_LEARNING = "Q_LEARNING"
 
 
 class EpisodeResult(object):
@@ -74,6 +86,162 @@ class StateActionValueTable(object):
         self.q = content["q"]
         self.default_value = content["default_value"]
         self.possible_actions = content["possible_actions"]
+
+
+# TODO change
+class DiscreteAgent(object):
+    discrete_action_space_pattern = re.compile(r"Discrete\(([0-9]+)\)")
+
+    def __init__(self, default_q=0.0, possible_actions=()):
+        self.rewards = collections.defaultdict(float)
+        self.transitions = collections.defaultdict(collections.Counter)
+        self.q_table = StateActionValueTable(default_value=default_q, possible_actions=possible_actions)
+        self.q_table2 = None  # TODO for double q learning
+
+    def _get_discrete_possible_actions(self, env):
+        """
+        Returns the possible actions of the supplied Environment if it has a discrete action space, else None
+        :param env: the Environment for which the actions need to be considered
+        :return: The possible actions as a list or None, if no actions could be detected
+        """
+        match = self.discrete_action_space_pattern.match(env.action_space.__repr__())
+        if match:
+            return list(range(int(match.group(1))))
+        return None
+
+    def _select_action(self, env, q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=0.5):
+        if method != ActionSelector.EPSILON_GREEDY:
+            raise RuntimeError("Method not implemented")
+
+        if np.random.uniform(1) <= epsilon:
+            return env.action_space.sample()
+        else:
+            action = q_table.get_q_max(state)[0]
+
+            if action is None:
+                action = env.action_space.sample()
+
+        return action
+
+    def _calculate_new_q(self, q_table, new_state, algorithm):
+        if algorithm != TDAlgorithm.Q_LEARNING:
+            raise RuntimeError("Method not implemented")
+
+        # Select Action which maximizes q in this state:
+        action = q_table.get_q_max(new_state)[0]
+
+        pass
+
+    def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9, *args, **kwargs):
+        q = StateActionValueTable()
+        possible_actions = self._get_discrete_possible_actions(env)
+
+        if possible_actions:
+            self.q_table.possible_actions = possible_actions
+
+        episode_returns = []
+        best_return = float("-inf")
+        best_result = None
+
+        i = 0
+        while i < num_episodes:
+            state = env.reset()
+            state = str(state)
+            done = False
+
+            episode_result = EpisodeResult(env, state)
+
+            while not done:
+                if algorithm == TDAlgorithm.Q_LEARNING:
+                    action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon)
+                else:
+                    raise RuntimeError("Method not implemented")
+
+                new_state, reward, done, info = env.step(action)
+                new_state = str(new_state)
+
+                episode_result.append(action, reward, new_state)
+
+                q_max = q.get_q_max(new_state)[0] # [0] incorrect?
+                td_error = (reward + gamma * q_max - q[state, action])
+                new_q_val = q[state, action] + alpha * td_error
+                q[state, action] = new_q_val
+
+                state = new_state
+            i += 1
+
+            episode_return = episode_result.calculate_return(gamma)
+            if best_return < episode_return:
+                best_return = episode_return
+                best_result = episode_result
+
+            episode_returns.append(episode_return)
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
+        self.q_table = q
+
+    def play(self, env, *args, **kwargs):
+        pass
+
+    # def select_best_action(self, state):
+    #     best_action, best_value = None, None
+    #     for action in range(self.env.action_space.n):
+    #         action_value = self.q_values[(state, action)]
+    #         if best_value is None or best_value < action_value:
+    #             best_value = action_value
+    #             best_action = action
+    #     return best_action
+
+    # def play_episode(self, env):
+    #     total_reward = 0.0
+    #     state = env.reset()
+    #     while True:
+    #         action = self.select_best_action(state)
+    #         new_state, reward, is_done, _ = env.step(action)
+    #         self.rewards[(state, action, new_state)] = reward
+    #         self.transitions[(state, action)][new_state] += 1
+    #         total_reward += reward
+    #         if is_done:
+    #             break
+    #         state = new_state
+    #     return total_reward
+    #
+    # def q_value_iteration(self, gamma):
+    #     for state in range(self.env.observation_space.n):
+    #         for action in range(self.env.action_space.n):
+    #             action_value = 0.0
+    #             target_counts = self.transitions[(state, action)]
+    #             total = sum(target_counts.values())
+    #             for tgt_state, count in target_counts.items():
+    #                 reward = self.rewards[(state, action, tgt_state)]
+    #                 best_action = self.select_best_action(tgt_state)
+    #                 action_value += (count / total) * (reward + gamma * self.q_values[(tgt_state, best_action)])
+    #             self.q_values[(state, action)] = action_value
+    #
+    # def play(self, gamma, num_random_steps=100, num_test_episodes=20):
+    #     writer = SummaryWriter(comment="-q-iteration")
+    #
+    #     iter_no = 0
+    #     best_reward = 0.0
+    #     while True:
+    #         iter_no += 1
+    #         self.play_n_random_steps(num_random_steps)
+    #         self.q_value_iteration(gamma)
+    #
+    #         reward = 0.0
+    #         for _ in range(num_test_episodes):
+    #             reward += self.play_episode(test_env)
+    #         reward /= num_test_episodes
+    #         writer.add_scalar("reward", reward, iter_no)
+    #         if reward > best_reward:
+    #             print("Best reward updated %.3f -> %.3f" % (best_reward, reward))
+    #             best_reward = reward
+    #         if reward > 0.80:
+    #             print("Solved in %d iterations!" % iter_no)
+    #             break
+    #     writer.close()
 
 
 def simple_blackjack_policy(state):
@@ -172,7 +340,7 @@ def epsilon_greedy_tabular_sarsa(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_it
     return q
 
 
-def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
+def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=10 ** 3):
     q = StateActionValueTable()
 
     discrete_pattern = re.compile(r"Discrete\(([0-9]+)\)")
@@ -199,7 +367,7 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
 
             episode_result.append(action, reward, new_state)
 
-            q_max = q.get_q_max(new_state)[0]
+            q_max = q.get_q_max(new_state)[1]
             td_error = (reward + gamma * q_max - q[state, action])
             new_q_val = q[state, action] + alpha * td_error
             q[state, action] = new_q_val
@@ -211,6 +379,7 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
         if best_return < episode_return:
             best_return = episode_return
             best_result = episode_result
+            print("New best return: {}".format(best_return))
 
         episode_returns.append(episode_return)
 
@@ -261,15 +430,20 @@ def tabular_expected_sarsa(env, alpha=0.5, gamma=0.99, num_iterations=10 ** 5):
     return q
 
 
-def test_tabular_q_policy(env, q: StateActionValueTable, num_iterations=1, greedy=True):
+def test_tabular_q_policy(env, q: StateActionValueTable, gamma=0.99, num_iterations=100, render=False, greedy=True):
     i = 0
+    best_return = float("-inf")
+    best_result = None
+    episode_returns = []
     while i < num_iterations:
         state = env.reset()
         state = str(state)
         done = False
 
+        episode_result = EpisodeResult(env, state)
         while not done:
-            env.render()
+            if render:
+                env.render()
 
             if greedy:
                 action = q.get_q_max(state)[0]
@@ -280,20 +454,33 @@ def test_tabular_q_policy(env, q: StateActionValueTable, num_iterations=1, greed
             new_state, reward, done, info = env.step(action)
             new_state = str(new_state)
 
+            episode_result.append(action, reward, new_state)
+
             state = new_state
 
-        print("================= DONE ===============")
+        episode_return = episode_result.calculate_return(gamma)
+        if best_return < episode_return:
+            best_return = episode_return
+            best_result = episode_result
+            print("New best return: {}".format(best_return))
+
+        episode_returns.append(episode_return)
         i += 1
+
+    return episode_returns, best_result, best_return
 
 
 def main():
     environment = gym.make("FrozenLake-v0")
 
+    # if type(environment) == gym.wrappers.time_limit.TimeLimit:
+    #     environment = environment.env
+
     # q = epsilon_greedy_tabular_sarsa(environment)
-    q, returns, best_result = tabular_q_learning(environment)
+    q, returns, best_result = tabular_q_learning(environment, epsilon=1.0)
     # q = tabular_expected_sarsa(environment)
 
-    test_tabular_q_policy(environment, q, greedy=False, num_iterations=10 ** 5)
+    returns, best_result = test_tabular_q_policy(environment, q, greedy=True, num_iterations=10 ** 3)
 
     print("")
     pass
