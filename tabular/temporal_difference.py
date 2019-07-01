@@ -7,8 +7,11 @@ import numpy as np
 import re
 import json
 import heapq
+import logging
 # TODO queue has PriorityQueues
 from tensorboardX import SummaryWriter
+
+logger = logging.getLogger(__file__)
 
 
 class ActionSelector(Enum):
@@ -69,12 +72,18 @@ class StateActionValueTable(object):
             return self.q[state][action]
         raise RuntimeError("Expected state or state-action pair as key")
 
-    def get_q_max(self, state):
+    def get_q_max_pair(self, state):
         q_values = self.__getitem__(state)
         q_values = sorted(q_values.items(), key=lambda entry: -entry[1])  # Entry with highest value is first
         if len(q_values) == 0:
             return None
         return q_values[0]
+
+    def get_q_max(self, state):
+        return self.get_q_max_pair(state)[1]
+
+    def get_best_action(self, state):
+        return self.get_q_max_pair(state)[0]
 
     def to_json_file(self, filename):
         with open(filename, "w") as f:
@@ -116,21 +125,19 @@ class DiscreteAgent(object):
         if np.random.uniform(1) <= epsilon:
             return env.action_space.sample()
         else:
-            action = q_table.get_q_max(state)[0]
+            action = q_table.get_q_max_pair(state)[0]
 
             if action is None:
                 action = env.action_space.sample()
 
         return action
 
-    def _calculate_new_q(self, q_table, new_state, algorithm):
+    def _calculate_state_value(self, q_table, state, algorithm):
         if algorithm != TDAlgorithm.Q_LEARNING:
             raise RuntimeError("Method not implemented")
 
-        # Select Action which maximizes q in this state:
-        action = q_table.get_q_max(new_state)[0]
-
-        pass
+        # Get Qmax for Q Learning
+        return q_table.get_q_max(state)
 
     def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9, *args, **kwargs):
         q = StateActionValueTable()
@@ -162,8 +169,9 @@ class DiscreteAgent(object):
 
                 episode_result.append(action, reward, new_state)
 
-                q_max = q.get_q_max(new_state)[0] # [0] incorrect?
-                td_error = (reward + gamma * q_max - q[state, action])
+                # state_value = q.get_q_max(new_state) # TODO
+                state_value = self._calculate_state_value(q, new_state, algorithm)
+                td_error = (reward + gamma * state_value - q[state, action])
                 new_q_val = q[state, action] + alpha * td_error
                 q[state, action] = new_q_val
 
@@ -178,9 +186,10 @@ class DiscreteAgent(object):
             episode_returns.append(episode_return)
 
             if i % 100 == 0:
-                print("{} iterations done".format(i))
+                logger.info("{} iterations done".format(i))
 
         self.q_table = q
+        return best_result, best_return
 
     def play(self, env, *args, **kwargs):
         pass
@@ -274,7 +283,7 @@ def epsilon_greedy_from_q(env: gym.Env, q: StateActionValueTable, state, epsilon
     if np.random.uniform(1) <= epsilon:
         return env.action_space.sample()
     else:
-        action = q.get_q_max(state)[0]
+        action = q.get_q_max_pair(state)[0]
 
         if action is None:
             action = env.action_space.sample()
@@ -367,7 +376,7 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
 
             episode_result.append(action, reward, new_state)
 
-            q_max = q.get_q_max(new_state)[1]
+            q_max = q.get_q_max_pair(new_state)[1]
             td_error = (reward + gamma * q_max - q[state, action])
             new_q_val = q[state, action] + alpha * td_error
             q[state, action] = new_q_val
@@ -379,12 +388,12 @@ def tabular_q_learning(env, epsilon=0.1, alpha=0.5, gamma=0.99, num_iterations=1
         if best_return < episode_return:
             best_return = episode_return
             best_result = episode_result
-            print("New best return: {}".format(best_return))
+            logger.info("New best return: {}".format(best_return))
 
         episode_returns.append(episode_return)
 
         if i % 100 == 0:
-            print("{} iterations done".format(i))
+            logger.info("{} iterations done".format(i))
 
     return q, episode_returns, best_result
 
@@ -446,7 +455,7 @@ def test_tabular_q_policy(env, q: StateActionValueTable, gamma=0.99, num_iterati
                 env.render()
 
             if greedy:
-                action = q.get_q_max(state)[0]
+                action = q.get_q_max_pair(state)[0]
             else:
                 policy = proportional_policy_from_q(q, state)
                 action = sample_from_tabular_policy(policy)
@@ -462,7 +471,7 @@ def test_tabular_q_policy(env, q: StateActionValueTable, gamma=0.99, num_iterati
         if best_return < episode_return:
             best_return = episode_return
             best_result = episode_result
-            print("New best return: {}".format(best_return))
+            logger.info("New best return: {}".format(best_return))
 
         episode_returns.append(episode_return)
         i += 1
@@ -471,16 +480,32 @@ def test_tabular_q_policy(env, q: StateActionValueTable, gamma=0.99, num_iterati
 
 
 def main():
-    environment = gym.make("FrozenLake-v0")
+    env_name = "FrozenLake-v0"
+    environment = gym.make(env_name)
+    test_env = gym.make(env_name)
+    logger.info("test")
 
     # if type(environment) == gym.wrappers.time_limit.TimeLimit:
     #     environment = environment.env
 
-    # q = epsilon_greedy_tabular_sarsa(environment)
-    q, returns, best_result = tabular_q_learning(environment, epsilon=1.0)
     # q = tabular_expected_sarsa(environment)
+    # q = epsilon_greedy_tabular_sarsa(environment)
+    epsilon = 1.0
 
-    returns, best_result = test_tabular_q_policy(environment, q, greedy=True, num_iterations=10 ** 3)
+    k = 0
+    epsilon = 1.0
+    goal_returns = 0.8
+    while True:
+        q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
+        test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True, num_iterations=20)
+
+        average_test_returns = 0.0 if len(test_returns) == 0 else sum(test_returns) / len(test_returns)
+        logger.warning("Average returns: {}".format(average_test_returns))
+
+        if average_test_returns >= goal_returns:
+            logger.warning("Done in {} rounds!".format(k))
+            break
+        k += 1
 
     print("")
     pass
