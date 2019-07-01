@@ -144,7 +144,7 @@ class DiscreteAgent(object):
         possible_actions = self._get_discrete_possible_actions(env)
 
         if possible_actions:
-            self.q_table.possible_actions = possible_actions
+            q.possible_actions = possible_actions
 
         episode_returns = []
         best_return = float("-inf")
@@ -495,8 +495,12 @@ def main():
     k = 0
     epsilon = 1.0
     goal_returns = 0.8
+
+    agent = DiscreteAgent()
     while True:
-        q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
+        # q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
+        best_result, best_return = agent.learn(environment, TDAlgorithm.Q_LEARNING, epsilon=1.0, num_episodes=10 ** 3)
+        q = agent.q_table
         test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True, num_iterations=20)
 
         average_test_returns = 0.0 if len(test_returns) == 0 else sum(test_returns) / len(test_returns)
