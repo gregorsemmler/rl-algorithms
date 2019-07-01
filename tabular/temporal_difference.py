@@ -20,6 +20,7 @@ class ActionSelector(Enum):
 
 class TDAlgorithm(Enum):
     Q_LEARNING = "Q_LEARNING"
+    EPSILON_GREEDY_SARSA = "EPSILON_GREEDY_SARSA"
 
 
 class EpisodeResult(object):
@@ -97,7 +98,6 @@ class StateActionValueTable(object):
         self.possible_actions = content["possible_actions"]
 
 
-# TODO change
 class DiscreteAgent(object):
     discrete_action_space_pattern = re.compile(r"Discrete\(([0-9]+)\)")
 
@@ -132,12 +132,14 @@ class DiscreteAgent(object):
 
         return action
 
-    def _calculate_state_value(self, q_table, state, algorithm):
-        if algorithm != TDAlgorithm.Q_LEARNING:
-            raise RuntimeError("Method not implemented")
+    def _calculate_state_value(self, q_table, state, algorithm, action=None):
+        if algorithm == TDAlgorithm.Q_LEARNING:
+            # Get Qmax for Q Learning
+            return q_table.get_q_max(state)
+        if algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
+            return q_table[state, action]
 
-        # Get Qmax for Q Learning
-        return q_table.get_q_max(state)
+        raise RuntimeError("Method not implemented: {}".format(algorithm))
 
     def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9, *args, **kwargs):
         q = StateActionValueTable()
@@ -157,10 +159,16 @@ class DiscreteAgent(object):
             done = False
 
             episode_result = EpisodeResult(env, state)
-
+            new_action = None
             while not done:
                 if algorithm == TDAlgorithm.Q_LEARNING:
                     action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon)
+                elif algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
+                    if new_action is None:
+                        action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY,
+                                                     epsilon=epsilon)
+                    else:
+                        action = new_action
                 else:
                     raise RuntimeError("Method not implemented")
 
@@ -169,8 +177,12 @@ class DiscreteAgent(object):
 
                 episode_result.append(action, reward, new_state)
 
-                # state_value = q.get_q_max(new_state) # TODO
-                state_value = self._calculate_state_value(q, new_state, algorithm)
+                new_action = None
+                if algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
+                    new_action = self._select_action(env, q, new_state, method=ActionSelector.EPSILON_GREEDY,
+                                                     epsilon=epsilon)
+
+                state_value = self._calculate_state_value(q, new_state, algorithm, action=new_action)
                 td_error = (reward + gamma * state_value - q[state, action])
                 new_q_val = q[state, action] + alpha * td_error
                 q[state, action] = new_q_val
@@ -269,7 +281,7 @@ def proportional_policy_from_q(q: StateActionValueTable, state):
     policy = {pair[0]: abs(minimum_val) + pair[1] for pair in pairs}  # shift so result is non negative
     total = sum(e[1] for e in policy.items())
     if total == 0.0:  # give equal probability to all actions
-        return {pair[0]: 1/len(pairs) for pair in pairs}
+        return {pair[0]: 1 / len(pairs) for pair in pairs}
     policy = {pair[0]: pair[1] / total for pair in policy.items()}
     return policy
 
@@ -499,9 +511,11 @@ def main():
     agent = DiscreteAgent()
     while True:
         # q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
-        best_result, best_return = agent.learn(environment, TDAlgorithm.Q_LEARNING, epsilon=1.0, num_episodes=10 ** 3)
+        best_result, best_return = agent.learn(environment, TDAlgorithm.EPSILON_GREEDY_SARSA, epsilon=1.0,
+                                               num_episodes=10 ** 3)
         q = agent.q_table
-        test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True, num_iterations=20)
+        test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True,
+                                                                                 num_iterations=20)
 
         average_test_returns = 0.0 if len(test_returns) == 0 else sum(test_returns) / len(test_returns)
         logger.warning("Average returns: {}".format(average_test_returns))
