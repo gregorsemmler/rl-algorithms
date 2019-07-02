@@ -22,6 +22,7 @@ class TDAlgorithm(Enum):
     Q_LEARNING = "Q_LEARNING"
     EPSILON_GREEDY_SARSA = "EPSILON_GREEDY_SARSA"
     EPSILON_GREEDY_EXPECTED_SARSA = "EPSILON_GREEDY_EXPECTED_SARSA"
+    DOUBLE_Q_LEARNING = "DOUBLE_Q_LEARNING"
 
 
 class EpisodeResult(object):
@@ -81,10 +82,25 @@ class StateActionValueTable(object):
             return None
         return q_values[0]
 
+    def get_q_max_pair_from_sum(self, state, q2):
+        q_values = self.__getitem__(state)
+        q_values2 = q2[state]
+        keys1 = set(q_values.keys())
+        keys2 = set(q_values2.keys())
+        q_sum = {k: q_values[k] + q_values2[k] for k in keys1 & keys2}
+        for k in keys1 - keys2:
+            q_sum[k] = q_values[k]
+        for k in keys2 - keys1:
+            q_sum[k] = q_values2[k]
+        q_sum_values = sorted(q_sum.items(), key=lambda entry: -entry[1])  # Entry with highest value is first
+        return q_sum_values[0]
+
     def get_q_max(self, state):
         return self.get_q_max_pair(state)[1]
 
-    def get_best_action(self, state):
+    def get_best_action(self, state, q2=None):
+        if q2 is not None:
+            return self.get_q_max_pair_from_sum(state, q2)[0]
         return self.get_q_max_pair(state)[0]
 
     def to_json_file(self, filename):
@@ -119,21 +135,21 @@ class DiscreteAgent(object):
             return list(range(int(match.group(1))))
         return None
 
-    def _select_action(self, env, q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=0.5):
+    def _select_action(self, env, q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=0.5, q2=None):
         if method != ActionSelector.EPSILON_GREEDY:
             raise RuntimeError("Method not implemented")
 
-        if np.random.uniform(1) <= epsilon:
+        if np.random.uniform() <= epsilon:
             return env.action_space.sample()
         else:
-            action = q_table.get_q_max_pair(state)[0]
+            action = q_table.get_best_action(state, q2)
 
             if action is None:
                 action = env.action_space.sample()
 
         return action
 
-    def _calculate_state_value(self, q_table, state, algorithm, action=None, epsilon=0.5):
+    def _calculate_state_value(self, q_table, state, algorithm, action=None, epsilon=0.5, q_table2=None):
         if algorithm == TDAlgorithm.Q_LEARNING:
             # Get Qmax for Q Learning
             return q_table.get_q_max(state)
@@ -149,15 +165,24 @@ class DiscreteAgent(object):
             for other_q, other_q_val in other_q_values:
                 new_value += epsilon * other_q_val / n
             return new_value
+        if algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
+            q1_best_action = q_table.get_best_action(state)
+            return q_table2[state, q1_best_action]
 
         raise RuntimeError("Method not implemented: {}".format(algorithm))
 
     def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9, *args, **kwargs):
         q = StateActionValueTable()
+        if algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
+            q2 = StateActionValueTable()
+        else:
+            q2 = None
         possible_actions = self._get_discrete_possible_actions(env)
 
         if possible_actions:
             q.possible_actions = possible_actions
+            if q2 is not None:
+                q2.possible_actions = possible_actions
 
         episode_returns = []
         best_return = float("-inf")
@@ -180,6 +205,8 @@ class DiscreteAgent(object):
                                                      epsilon=epsilon)
                     else:
                         action = new_action
+                elif algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
+                    action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon, q2=q2)
                 else:
                     raise RuntimeError("Method not implemented")
 
@@ -193,10 +220,18 @@ class DiscreteAgent(object):
                     new_action = self._select_action(env, q, new_state, method=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
 
-                state_value = self._calculate_state_value(q, new_state, algorithm, epsilon=epsilon, action=new_action)
-                td_error = (reward + gamma * state_value - q[state, action])
-                new_q_val = q[state, action] + alpha * td_error
-                q[state, action] = new_q_val
+                q1_prob = 1.0 if algorithm != TDAlgorithm.DOUBLE_Q_LEARNING else np.random.uniform()
+
+                if q1_prob > 0.5:
+                    state_value = self._calculate_state_value(q, new_state, algorithm, q_table2=q2, epsilon=epsilon, action=new_action)
+                    td_error = (reward + gamma * state_value - q[state, action])
+                    new_q_val = q[state, action] + alpha * td_error
+                    q[state, action] = new_q_val
+                else:
+                    state_value = self._calculate_state_value(q2, new_state, algorithm, q_table2=q, epsilon=epsilon, action=new_action)
+                    td_error = (reward + gamma * state_value - q2[state, action])
+                    new_q_val = q2[state, action] + alpha * td_error
+                    q2[state, action] = new_q_val
 
                 state = new_state
             i += 1
@@ -212,6 +247,7 @@ class DiscreteAgent(object):
                 logger.info("{} iterations done".format(i))
 
         self.q_table = q
+        self.q_table2 = q2
         return best_result, best_return
 
     def play(self, env, *args, **kwargs):
@@ -516,13 +552,13 @@ def main():
     epsilon = 1.0
 
     k = 0
-    epsilon = 1.0
+    epsilon = 0.1
     goal_returns = 0.8
 
     agent = DiscreteAgent()
     while True:
         # q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
-        best_result, best_return = agent.learn(environment, TDAlgorithm.EPSILON_GREEDY_EXPECTED_SARSA, epsilon=1.0,
+        best_result, best_return = agent.learn(environment, TDAlgorithm.DOUBLE_Q_LEARNING, epsilon=epsilon,
                                                num_episodes=10 ** 3)
         q = agent.q_table
         test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True,
