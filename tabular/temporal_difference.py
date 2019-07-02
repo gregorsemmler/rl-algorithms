@@ -172,17 +172,14 @@ class DiscreteAgent(object):
         raise RuntimeError("Method not implemented: {}".format(algorithm))
 
     def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9, *args, **kwargs):
-        q = StateActionValueTable()
-        if algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
-            q2 = StateActionValueTable()
-        else:
-            q2 = None
+        if algorithm == TDAlgorithm.DOUBLE_Q_LEARNING and self.q_table2 is None:
+            self.q_table2 = StateActionValueTable()
         possible_actions = self._get_discrete_possible_actions(env)
 
         if possible_actions:
-            q.possible_actions = possible_actions
-            if q2 is not None:
-                q2.possible_actions = possible_actions
+            self.q_table.possible_actions = possible_actions
+            if self.q_table2 is not None:
+                self.q_table2.possible_actions = possible_actions
 
         episode_returns = []
         best_return = float("-inf")
@@ -198,15 +195,15 @@ class DiscreteAgent(object):
             new_action = None
             while not done:
                 if algorithm == TDAlgorithm.Q_LEARNING or algorithm == TDAlgorithm.EPSILON_GREEDY_EXPECTED_SARSA:
-                    action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon)
+                    action = self._select_action(env, self.q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon)
                 elif algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
                     if new_action is None:
-                        action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY,
+                        action = self._select_action(env, self.q_table, state, method=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
                     else:
                         action = new_action
                 elif algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
-                    action = self._select_action(env, q, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon, q2=q2)
+                    action = self._select_action(env, self.q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon, q2=self.q_table2)
                 else:
                     raise RuntimeError("Method not implemented")
 
@@ -217,21 +214,21 @@ class DiscreteAgent(object):
 
                 new_action = None
                 if algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
-                    new_action = self._select_action(env, q, new_state, method=ActionSelector.EPSILON_GREEDY,
+                    new_action = self._select_action(env, self.q_table, new_state, method=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
 
                 q1_prob = 1.0 if algorithm != TDAlgorithm.DOUBLE_Q_LEARNING else np.random.uniform()
 
-                if q1_prob > 0.5:
-                    state_value = self._calculate_state_value(q, new_state, algorithm, q_table2=q2, epsilon=epsilon, action=new_action)
-                    td_error = (reward + gamma * state_value - q[state, action])
-                    new_q_val = q[state, action] + alpha * td_error
-                    q[state, action] = new_q_val
+                if q1_prob >= 0.5:
+                    state_value = self._calculate_state_value(self.q_table, new_state, algorithm, q_table2=self.q_table2, epsilon=epsilon, action=new_action)
+                    td_error = (reward + gamma * state_value - self.q_table[state, action])
+                    new_q_val = self.q_table[state, action] + alpha * td_error
+                    self.q_table[state, action] = new_q_val
                 else:
-                    state_value = self._calculate_state_value(q2, new_state, algorithm, q_table2=q, epsilon=epsilon, action=new_action)
-                    td_error = (reward + gamma * state_value - q2[state, action])
-                    new_q_val = q2[state, action] + alpha * td_error
-                    q2[state, action] = new_q_val
+                    state_value = self._calculate_state_value(self.q_table2, new_state, algorithm, q_table2=self.q_table, epsilon=epsilon, action=new_action)
+                    td_error = (reward + gamma * state_value - self.q_table2[state, action])
+                    new_q_val = self.q_table2[state, action] + alpha * td_error
+                    self.q_table2[state, action] = new_q_val
 
                 state = new_state
             i += 1
@@ -246,8 +243,6 @@ class DiscreteAgent(object):
             if i % 100 == 0:
                 logger.info("{} iterations done".format(i))
 
-        self.q_table = q
-        self.q_table2 = q2
         return best_result, best_return
 
     def play(self, env, *args, **kwargs):
@@ -543,22 +538,14 @@ def main():
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
     logger.info("test")
-
-    # if type(environment) == gym.wrappers.time_limit.TimeLimit:
-    #     environment = environment.env
-
-    # q = tabular_expected_sarsa(environment)
-    # q = epsilon_greedy_tabular_sarsa(environment)
-    epsilon = 1.0
-
     k = 0
-    epsilon = 0.1
+    epsilon = 1.0
     goal_returns = 0.8
 
     agent = DiscreteAgent()
     while True:
         # q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
-        best_result, best_return = agent.learn(environment, TDAlgorithm.DOUBLE_Q_LEARNING, epsilon=epsilon,
+        best_result, best_return = agent.learn(environment, TDAlgorithm.Q_LEARNING, epsilon=epsilon,
                                                num_episodes=10 ** 3)
         q = agent.q_table
         test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True,
