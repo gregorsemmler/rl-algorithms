@@ -123,7 +123,7 @@ class DiscreteAgent(object):
         self.rewards = collections.defaultdict(float)
         self.transitions = collections.defaultdict(collections.Counter)
         self.q_table = StateActionValueTable(default_value=default_q, possible_actions=possible_actions)
-        self.q_table2 = None  # TODO for double q learning
+        self.q_table2 = None
 
     def _get_discrete_possible_actions(self, env):
         """
@@ -518,6 +518,7 @@ def test_tabular_q_policy(env, q: StateActionValueTable, gamma=0.99, num_iterati
 def main():
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "Taxi-v2"
+    algorithm = TDAlgorithm.DOUBLE_Q_LEARNING
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -525,20 +526,22 @@ def main():
     k = 0
     epsilon = 1.0
     goal_returns = env_spec.reward_threshold
+    gamma = 1.0
 
-    writer = SummaryWriter(comment=env_name)
+    writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
     max_rounds = 1000
     agent = DiscreteAgent()
     best_result, best_return = None, float("-inf")
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
-    num_train_episodes = 1000
+    num_train_episodes = 100
     num_test_episodes = 10
     while True:
-        round_best_result, round_best_return = agent.learn(environment, TDAlgorithm.DOUBLE_Q_LEARNING, epsilon=epsilon,
+        round_best_result, round_best_return = agent.learn(environment, algorithm, epsilon=epsilon, gamma=gamma,
                                                            num_episodes=num_train_episodes)
-        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env,
+        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, epsilon=0.0,
+                                                                                        gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
             writer.add_scalar("test_return", r, len(test_returns) + r_idx)
