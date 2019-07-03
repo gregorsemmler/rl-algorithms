@@ -8,8 +8,9 @@ import re
 import json
 import heapq
 import logging
-# TODO queue has PriorityQueues
+from gym.wrappers import TimeLimit
 from tensorboardX import SummaryWriter
+from gym import envs
 
 logger = logging.getLogger(__file__)
 
@@ -135,8 +136,8 @@ class DiscreteAgent(object):
             return list(range(int(match.group(1))))
         return None
 
-    def _select_action(self, env, q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=0.5, q2=None):
-        if method != ActionSelector.EPSILON_GREEDY:
+    def _select_action(self, env, q_table, state, selector=ActionSelector.EPSILON_GREEDY, epsilon=0.5, q2=None):
+        if selector != ActionSelector.EPSILON_GREEDY:
             raise RuntimeError("Method not implemented")
 
         if np.random.uniform() <= epsilon:
@@ -161,7 +162,7 @@ class DiscreteAgent(object):
             q_max, q_max_val = q_values[0]
             other_q_values = q_values[1:]
             n = len(q_values)
-            new_value = (1 - ((n-1) * epsilon / n)) * q_max_val
+            new_value = (1 - ((n - 1) * epsilon / n)) * q_max_val
             for other_q, other_q_val in other_q_values:
                 new_value += epsilon * other_q_val / n
             return new_value
@@ -171,7 +172,7 @@ class DiscreteAgent(object):
 
         raise RuntimeError("Method not implemented: {}".format(algorithm))
 
-    def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9, *args, **kwargs):
+    def learn(self, env, algorithm, num_episodes=100, epsilon=0.5, alpha=0.5, gamma=0.9):
         if algorithm == TDAlgorithm.DOUBLE_Q_LEARNING and self.q_table2 is None:
             self.q_table2 = StateActionValueTable()
         possible_actions = self._get_discrete_possible_actions(env)
@@ -195,15 +196,17 @@ class DiscreteAgent(object):
             new_action = None
             while not done:
                 if algorithm == TDAlgorithm.Q_LEARNING or algorithm == TDAlgorithm.EPSILON_GREEDY_EXPECTED_SARSA:
-                    action = self._select_action(env, self.q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon)
+                    action = self._select_action(env, self.q_table, state, selector=ActionSelector.EPSILON_GREEDY,
+                                                 epsilon=epsilon)
                 elif algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
                     if new_action is None:
-                        action = self._select_action(env, self.q_table, state, method=ActionSelector.EPSILON_GREEDY,
+                        action = self._select_action(env, self.q_table, state, selector=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
                     else:
                         action = new_action
                 elif algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
-                    action = self._select_action(env, self.q_table, state, method=ActionSelector.EPSILON_GREEDY, epsilon=epsilon, q2=self.q_table2)
+                    action = self._select_action(env, self.q_table, state, selector=ActionSelector.EPSILON_GREEDY,
+                                                 epsilon=epsilon, q2=self.q_table2)
                 else:
                     raise RuntimeError("Method not implemented")
 
@@ -214,18 +217,22 @@ class DiscreteAgent(object):
 
                 new_action = None
                 if algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
-                    new_action = self._select_action(env, self.q_table, new_state, method=ActionSelector.EPSILON_GREEDY,
+                    new_action = self._select_action(env, self.q_table, new_state,
+                                                     selector=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
 
                 q1_prob = 1.0 if algorithm != TDAlgorithm.DOUBLE_Q_LEARNING else np.random.uniform()
 
                 if q1_prob >= 0.5:
-                    state_value = self._calculate_state_value(self.q_table, new_state, algorithm, q_table2=self.q_table2, epsilon=epsilon, action=new_action)
+                    state_value = self._calculate_state_value(self.q_table, new_state, algorithm,
+                                                              q_table2=self.q_table2, epsilon=epsilon,
+                                                              action=new_action)
                     td_error = (reward + gamma * state_value - self.q_table[state, action])
                     new_q_val = self.q_table[state, action] + alpha * td_error
                     self.q_table[state, action] = new_q_val
                 else:
-                    state_value = self._calculate_state_value(self.q_table2, new_state, algorithm, q_table2=self.q_table, epsilon=epsilon, action=new_action)
+                    state_value = self._calculate_state_value(self.q_table2, new_state, algorithm,
+                                                              q_table2=self.q_table, epsilon=epsilon, action=new_action)
                     td_error = (reward + gamma * state_value - self.q_table2[state, action])
                     new_q_val = self.q_table2[state, action] + alpha * td_error
                     self.q_table2[state, action] = new_q_val
@@ -245,66 +252,41 @@ class DiscreteAgent(object):
 
         return best_result, best_return
 
-    def play(self, env, *args, **kwargs):
-        pass
+    def play(self, env, selector=ActionSelector.EPSILON_GREEDY, num_episodes=100, epsilon=0.5, gamma=0.9, render=False):
+        i = 0
+        best_return = float("-inf")
+        best_result = None
+        episode_returns = []
+        while i < num_episodes:
+            state = env.reset()
+            state = str(state)
+            done = False
 
-    # def select_best_action(self, state):
-    #     best_action, best_value = None, None
-    #     for action in range(self.env.action_space.n):
-    #         action_value = self.q_values[(state, action)]
-    #         if best_value is None or best_value < action_value:
-    #             best_value = action_value
-    #             best_action = action
-    #     return best_action
+            episode_result = EpisodeResult(env, state)
+            while not done:
+                if render:
+                    env.render()
 
-    # def play_episode(self, env):
-    #     total_reward = 0.0
-    #     state = env.reset()
-    #     while True:
-    #         action = self.select_best_action(state)
-    #         new_state, reward, is_done, _ = env.step(action)
-    #         self.rewards[(state, action, new_state)] = reward
-    #         self.transitions[(state, action)][new_state] += 1
-    #         total_reward += reward
-    #         if is_done:
-    #             break
-    #         state = new_state
-    #     return total_reward
-    #
-    # def q_value_iteration(self, gamma):
-    #     for state in range(self.env.observation_space.n):
-    #         for action in range(self.env.action_space.n):
-    #             action_value = 0.0
-    #             target_counts = self.transitions[(state, action)]
-    #             total = sum(target_counts.values())
-    #             for tgt_state, count in target_counts.items():
-    #                 reward = self.rewards[(state, action, tgt_state)]
-    #                 best_action = self.select_best_action(tgt_state)
-    #                 action_value += (count / total) * (reward + gamma * self.q_values[(tgt_state, best_action)])
-    #             self.q_values[(state, action)] = action_value
-    #
-    # def play(self, gamma, num_random_steps=100, num_test_episodes=20):
-    #     writer = SummaryWriter(comment="-q-iteration")
-    #
-    #     iter_no = 0
-    #     best_reward = 0.0
-    #     while True:
-    #         iter_no += 1
-    #         self.play_n_random_steps(num_random_steps)
-    #         self.q_value_iteration(gamma)
-    #
-    #         reward = 0.0
-    #         for _ in range(num_test_episodes):
-    #             reward += self.play_episode(test_env)
-    #         reward /= num_test_episodes
-    #         writer.add_scalar("reward", reward, iter_no)
-    #         if reward > best_reward:
-    #             print("Best reward updated %.3f -> %.3f" % (best_reward, reward))
-    #             best_reward = reward
-    #         if reward > 0.80:
-    #             print("Solved in %d iterations!" % iter_no)
-    #             break
-    #     writer.close()
+                action = self._select_action(env, self.q_table, state, selector=selector, epsilon=epsilon,
+                                             q2=self.q_table2)
+
+                new_state, reward, done, info = env.step(action)
+                new_state = str(new_state)
+
+                episode_result.append(action, reward, new_state)
+
+                state = new_state
+
+            episode_return = episode_result.calculate_return(gamma)
+            if best_return < episode_return:
+                best_return = episode_return
+                best_result = episode_result
+                logger.info("New best return: {}".format(best_return))
+
+            episode_returns.append(episode_return)
+            i += 1
+
+        return episode_returns, best_result, best_return
 
 
 def simple_blackjack_policy(state):
@@ -534,27 +516,47 @@ def test_tabular_q_policy(env, q: StateActionValueTable, gamma=0.99, num_iterati
 
 
 def main():
-    env_name = "FrozenLake-v0"
+    env_names = sorted(envs.registry.env_specs.keys())
+    env_name = "Taxi-v2"
+    env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
     logger.info("test")
     k = 0
     epsilon = 1.0
-    goal_returns = 0.8
+    goal_returns = env_spec.reward_threshold
 
+    writer = SummaryWriter(comment=env_name)
+
+    max_rounds = 1000
     agent = DiscreteAgent()
+    best_result, best_return = None, float("-inf")
+    test_best_result, test_best_return = None, float("-inf")
+    test_returns = []
+    num_train_episodes = 1000
+    num_test_episodes = 10
     while True:
-        # q, returns, best_result = tabular_q_learning(environment, epsilon=epsilon)
-        best_result, best_return = agent.learn(environment, TDAlgorithm.Q_LEARNING, epsilon=epsilon,
-                                               num_episodes=10 ** 3)
-        q = agent.q_table
-        test_returns, test_best_result, test_best_return = test_tabular_q_policy(test_env, q, greedy=True,
-                                                                                 num_iterations=20)
+        round_best_result, round_best_return = agent.learn(environment, TDAlgorithm.DOUBLE_Q_LEARNING, epsilon=epsilon,
+                                                           num_episodes=num_train_episodes)
+        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env,
+                                                                                        num_episodes=num_test_episodes)
+        for r_idx, r in enumerate(round_test_returns):
+            writer.add_scalar("test_return", r, len(test_returns) + r_idx)
 
-        average_test_returns = 0.0 if len(test_returns) == 0 else sum(test_returns) / len(test_returns)
-        logger.warning("Average returns: {}".format(average_test_returns))
+        test_returns.extend(round_test_returns)
 
-        if average_test_returns >= goal_returns:
+        if best_return < round_best_return:
+            best_return = round_best_return
+            best_result = round_best_result
+
+        if test_best_return < round_test_best_return:
+            test_best_return = round_test_best_return
+            test_best_result = round_test_best_result
+
+        average_test_return = 0.0 if len(round_test_returns) == 0 else sum(round_test_returns) / len(round_test_returns)
+        logger.warning("Average returns: {}".format(average_test_return))
+
+        if (goal_returns is not None and average_test_return >= goal_returns) or k >= max_rounds:
             logger.warning("Done in {} rounds!".format(k))
             break
         k += 1
