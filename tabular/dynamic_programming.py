@@ -54,7 +54,7 @@ class DPAgent(object):
                 else:
                     self.probabilities[(s, a, s2)] = self.transitions[(s, a)][s2] / num_transitions
 
-    def policy_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=10 ** 3, max_iterations=10 ** 3):
+    def policy_iteration(self, env, gamma=0.99, theta=0.001, num_random_steps=10 ** 3, max_iterations=10 ** 3):
         if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
             raise RuntimeError("Expected Discrete action space")
 
@@ -69,7 +69,7 @@ class DPAgent(object):
         i = 0
         while not policy_stable and i < max_iterations:
             logger.warning("Round {}".format(i))
-            logger.warning("Policy Evaluation")
+            logger.debug("Policy Evaluation")
             # Policy evaluation
             delta = float("inf")
             while delta >= theta:
@@ -83,7 +83,7 @@ class DPAgent(object):
                     delta = max(delta, abs(val - v[s]))
 
             logger.warning("Delta was {}".format(delta))
-            logger.warning("Policy Improvement")
+            logger.debug("Policy Improvement")
 
             # Policy improvement
             policy_stable = True
@@ -103,14 +103,15 @@ class DPAgent(object):
                         best_value = cur_val
                         best_action = a
                 if best_action is None:
-                    logger.warning("No best action found for state {}".format(s))
+                    logger.debug("No best action found for state {}".format(s))
                     best_action = 0
                 policy[s] = best_action
                 if best_action != old_action:
-                    logger.warning("p[{}] -> {}".format(s, best_action))
+                    logger.debug("policy[{}] -> {}".format(s, best_action))
                     policy_stable = False
             i += 1
 
+        self.policy = policy
         return policy, v
 
     def learn(self, env, algorithm=DPAlgorithm.POLICY_ITERATION, gamma=0.99, theta=0.01, num_random_steps=10 ** 3,
@@ -156,43 +157,59 @@ class DPAgent(object):
 
     # TODO implement
     def value_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=1000):
-        pass
-        # if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
-        #     raise RuntimeError("Expected Discrete action space")
-        #
-        # self.estimate_transition_probabilities(env, num_iterations=num_random_steps)
-        #
-        # v = collections.defaultdict(float)
-        #
-        # all_states = set([k(0) for k in self.transitions.keys()]) | set([k(2) for k in self.transitions.keys()])
-        # # Policy evaluation
-        # delta = float("inf")
-        # while delta >= theta:
-        #     delta = 0
-        #     for s in all_states:
-        #         state_action_pairs = [(st, ac) for (st, ac) in self.transitions.keys() if st == s]
-        #         best_action = None
-        #         best_value = float("-inf")
-        #         for _, a in state_action_pairs:
-        #             cur_val = 0.0
-        #             for s2 in self.transitions[(s, a)].values():
-        #                 cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
-        #
-        #             if cur_val > best_value:
-        #                 best_value = cur_val
-        #                 best_action = a
-        #         # TODO
-        #
-        #         val = v[s]
-        #         v[s] = sum(
-        #             [self.probabilities[(s, policy[s], s2)] * (self.rewards[(s, policy[s], s2)] + gamma * v[s2]) for s2
-        #              in all_states])
-        #         delta = max(delta, abs(val - v[s]))
+        if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
+            raise RuntimeError("Expected Discrete action space")
+
+        self.estimate_transition_probabilities(env, num_iterations=num_random_steps)
+
+        v = collections.defaultdict(float)
+        policy = collections.defaultdict(int)
+
+        all_states = set([k(0) for k in self.transitions.keys()]) | set([k(2) for k in self.transitions.keys()])
+        # Policy evaluation
+        delta = float("inf")
+        while delta >= theta:
+            delta = 0
+            for s in all_states:
+                state_action_pairs = [(st, ac) for (st, ac) in self.transitions.keys() if st == s]
+                best_value = float("-inf")
+                for _, a in state_action_pairs:
+                    val = v[s]
+                    cur_val = 0.0
+                    for s2 in self.transitions[(s, a)].values():
+                        cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
+
+                    if cur_val > best_value:
+                        best_value = cur_val
+
+                    if best_value > float("-inf") :
+                        logger.warning("State {} has no best action".format(s))
+                    v[s] = best_value
+                    delta = max(delta, abs(val - v[s]))
+
+        for s in all_states:
+
+            state_action_pairs = [(st, ac) for (st, ac) in self.transitions.keys() if st == s]
+            best_action = None
+            best_value = float("-inf")
+            for _, a in state_action_pairs:
+                cur_val = 0.0
+                for s2 in self.transitions[(s, a)].keys():
+                    cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
+
+                if cur_val > best_value:
+                    best_value = cur_val
+                    best_action = a
+            if best_action is None:
+                logger.warning("No best action found for state {}".format(s))
+                best_action = 0
+            policy[s] = best_action
+
 
 
 def main():
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "Taxi-v2"
+    env_name = "FrozenLake-v0"
     algorithm = DPAlgorithm.POLICY_ITERATION
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
@@ -204,12 +221,12 @@ def main():
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
-    max_rounds = 1000
+    max_rounds = 10000
     agent = DPAgent()
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
     num_random_steps = 1000
-    num_test_episodes = 10
+    num_test_episodes = 100
     while True:
         agent.learn(environment, algorithm, gamma=gamma, num_random_steps=num_random_steps)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
