@@ -45,8 +45,7 @@ class DPAgent(object):
 
         print("")
 
-    # TODO test
-    def policy_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=1000):
+    def policy_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=10 ** 3, max_iterations=10 ** 3):
         if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
             raise RuntimeError("Expected Discrete action space")
 
@@ -55,11 +54,13 @@ class DPAgent(object):
         v = collections.defaultdict(float)
         policy = collections.defaultdict(int)
 
-        all_states = set([k(0) for k in self.transitions.keys()]) | set([k(2) for k in self.transitions.keys()])
+        all_states = set([k[0] for k in self.probabilities.keys()]) | set([k[2] for k in self.probabilities.keys()])
 
         policy_stable = False
-
-        while not policy_stable:
+        i = 0
+        while not policy_stable and i < max_iterations:
+            logger.warning("Round {}".format(i))
+            logger.warning("Policy Evaluation")
             # Policy evaluation
             delta = float("inf")
             while delta >= theta:
@@ -67,9 +68,13 @@ class DPAgent(object):
                 for s in all_states:
                     val = v[s]
                     v[s] = sum(
-                        [self.probabilities[(s, policy[s], s2)] * (self.rewards[(s, policy[s], s2)] + gamma * v[s2]) for s2
+                        [self.probabilities[(s, policy[s], s2)] * (self.rewards[(s, policy[s], s2)] + gamma * v[s2]) for
+                         s2
                          in all_states])
                     delta = max(delta, abs(val - v[s]))
+
+            logger.warning("Delta was {}".format(delta))
+            logger.warning("Policy Improvement")
 
             # Policy improvement
             policy_stable = True
@@ -82,20 +87,25 @@ class DPAgent(object):
                 best_value = float("-inf")
                 for _, a in state_action_pairs:
                     cur_val = 0.0
-                    for s2 in self.transitions[(s, a)].values():
+                    for s2 in self.transitions[(s, a)].keys():
                         cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
 
                     if cur_val > best_value:
                         best_value = cur_val
                         best_action = a
-
+                if best_action is None:
+                    logger.warning("No best action found for state {}".format(s))
+                    best_action = 0
                 policy[s] = best_action
                 if best_action != old_action:
+                    logger.warning("p[{}] -> {}".format(s, best_action))
                     policy_stable = False
+
+            i += 1
 
         return policy, v
 
-   # TODO
+    # TODO implement
     def value_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=1000):
         if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
             raise RuntimeError("Expected Discrete action space")
@@ -153,7 +163,7 @@ def main():
     logger.info("test")
 
     agent = DPAgent()
-    agent.estimate_transition_probabilities(environment, num_iterations=1000)
+    agent.policy_iteration(environment)
     print("")
     pass
 
