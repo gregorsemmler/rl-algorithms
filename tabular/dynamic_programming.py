@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 import collections
 import logging
+from enum import Enum
+
 from tensorboardX import SummaryWriter
 
 import gym
 from gym import envs
 
+from core import EpisodeResult
+
 logger = logging.getLogger(__file__)
+
+
+class DPAlgorithm(Enum):
+    POLICY_ITERATION = "POLICY_ITERATION"
 
 
 class DPAgent(object):
@@ -15,9 +23,12 @@ class DPAgent(object):
         self.rewards = collections.defaultdict(float)
         self.transitions = collections.defaultdict(collections.Counter)
         self.probabilities = collections.defaultdict(float)
-        pass
+        self.policy = collections.defaultdict(int)
+        self.value_table = collections.defaultdict(float)
 
-    # TODO
+    def _select_action(self, env, state):
+        return self.policy[state]
+
     def estimate_transition_probabilities(self, env, num_iterations=100):
         """
         Performs a number of random actions and estimates the state-action-state probabilities depending on how often
@@ -42,8 +53,6 @@ class DPAgent(object):
                     self.probabilities[(s, a, s2)] = 0.0
                 else:
                     self.probabilities[(s, a, s2)] = self.transitions[(s, a)][s2] / num_transitions
-
-        print("")
 
     def policy_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=10 ** 3, max_iterations=10 ** 3):
         if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
@@ -100,72 +109,129 @@ class DPAgent(object):
                 if best_action != old_action:
                     logger.warning("p[{}] -> {}".format(s, best_action))
                     policy_stable = False
-
             i += 1
 
         return policy, v
 
+    def learn(self, env, algorithm=DPAlgorithm.POLICY_ITERATION, gamma=0.99, theta=0.01, num_random_steps=10 ** 3,
+              max_iterations=10 ** 3):
+        if algorithm != DPAlgorithm.POLICY_ITERATION:
+            raise RuntimeError("Algorithm not implemented.")
+        self.policy_iteration(env, gamma=gamma, theta=theta, num_random_steps=num_random_steps,
+                              max_iterations=max_iterations)
+
+    def play(self, env, num_episodes=100, gamma=0.99, render=False):
+        i = 0
+        best_return = float("-inf")
+        best_result = None
+        episode_returns = []
+        while i < num_episodes:
+            state = env.reset()
+            state = str(state)
+            done = False
+
+            episode_result = EpisodeResult(env, state)
+            while not done:
+                if render:
+                    env.render()
+
+                action = self._select_action(env, state)
+                new_state, reward, done, info = env.step(action)
+                new_state = str(new_state)
+
+                episode_result.append(action, reward, new_state)
+
+                state = new_state
+
+            episode_return = episode_result.calculate_return(gamma)
+            if best_return < episode_return:
+                best_return = episode_return
+                best_result = episode_result
+                logger.info("New best return: {}".format(best_return))
+
+            episode_returns.append(episode_return)
+            i += 1
+
+        return episode_returns, best_result, best_return
+
     # TODO implement
     def value_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=1000):
-        if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
-            raise RuntimeError("Expected Discrete action space")
-
-        self.estimate_transition_probabilities(env, num_iterations=num_random_steps)
-
-        v = collections.defaultdict(float)
-
-        all_states = set([k(0) for k in self.transitions.keys()]) | set([k(2) for k in self.transitions.keys()])
-        # Policy evaluation
-        delta = float("inf")
-        while delta >= theta:
-            delta = 0
-            for s in all_states:
-                state_action_pairs = [(st, ac) for (st, ac) in self.transitions.keys() if st == s]
-                best_action = None
-                best_value = float("-inf")
-                for _, a in state_action_pairs:
-                    cur_val = 0.0
-                    for s2 in self.transitions[(s, a)].values():
-                        cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
-
-                    if cur_val > best_value:
-                        best_value = cur_val
-                        best_action = a
-                # TODO
-
-                val = v[s]
-                v[s] = sum(
-                    [self.probabilities[(s, policy[s], s2)] * (self.rewards[(s, policy[s], s2)] + gamma * v[s2]) for s2
-                     in all_states])
-                delta = max(delta, abs(val - v[s]))
-
-    # TODO
-    # def q_value_iteration(self, env):
-    #     for state in range(env.observation_space.n):
-    #         for action in range(env.action_space.n):
-    #             action_value = 0.0
-    #             target_counts = self.transitions[(state, action)]
-    #             total = sum(target_counts.values())
-    #             for tgt_state, count in target_counts.items():
-    #                 reward = self.rewards[(state, action, tgt_state)]
-    #                 best_action = self.select_action(tgt_state)
-    #                 action_value += (count / total) * (reward + GAMMA * self.values[(tgt_state, best_action)])
-    #             self.values[(state, action)] = action_value
+        pass
+        # if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
+        #     raise RuntimeError("Expected Discrete action space")
+        #
+        # self.estimate_transition_probabilities(env, num_iterations=num_random_steps)
+        #
+        # v = collections.defaultdict(float)
+        #
+        # all_states = set([k(0) for k in self.transitions.keys()]) | set([k(2) for k in self.transitions.keys()])
+        # # Policy evaluation
+        # delta = float("inf")
+        # while delta >= theta:
+        #     delta = 0
+        #     for s in all_states:
+        #         state_action_pairs = [(st, ac) for (st, ac) in self.transitions.keys() if st == s]
+        #         best_action = None
+        #         best_value = float("-inf")
+        #         for _, a in state_action_pairs:
+        #             cur_val = 0.0
+        #             for s2 in self.transitions[(s, a)].values():
+        #                 cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
+        #
+        #             if cur_val > best_value:
+        #                 best_value = cur_val
+        #                 best_action = a
+        #         # TODO
+        #
+        #         val = v[s]
+        #         v[s] = sum(
+        #             [self.probabilities[(s, policy[s], s2)] * (self.rewards[(s, policy[s], s2)] + gamma * v[s2]) for s2
+        #              in all_states])
+        #         delta = max(delta, abs(val - v[s]))
 
 
 def main():
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
-
+    env_name = "Taxi-v2"
+    algorithm = DPAlgorithm.POLICY_ITERATION
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
-    logger.info("test")
 
+    k = 0
+    goal_returns = env_spec.reward_threshold
+    gamma = 0.99
+
+    writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
+
+    max_rounds = 1000
     agent = DPAgent()
-    agent.policy_iteration(environment)
+    test_best_result, test_best_return = None, float("-inf")
+    test_returns = []
+    num_random_steps = 1000
+    num_test_episodes = 10
+    while True:
+        agent.learn(environment, algorithm, gamma=gamma, num_random_steps=num_random_steps)
+        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
+                                                                                        num_episodes=num_test_episodes)
+        for r_idx, r in enumerate(round_test_returns):
+            writer.add_scalar("test_return", r, len(test_returns) + r_idx)
+
+        test_returns.extend(round_test_returns)
+
+        if test_best_return < round_test_best_return:
+            test_best_return = round_test_best_return
+            test_best_result = round_test_best_result
+
+        average_test_return = 0.0 if len(round_test_returns) == 0 else sum(round_test_returns) / len(round_test_returns)
+        logger.warning("Average returns: {}".format(average_test_return))
+
+        if (goal_returns is not None and average_test_return >= goal_returns) or k >= max_rounds:
+            logger.warning("Done in {} rounds!".format(k))
+            break
+        k += 1
+
     print("")
-    pass
 
 
 if __name__ == "__main__":
