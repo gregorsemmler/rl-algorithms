@@ -15,6 +15,7 @@ logger = logging.getLogger(__file__)
 
 class DPAlgorithm(Enum):
     POLICY_ITERATION = "POLICY_ITERATION"
+    VALUE_ITERATION = "VALUE_ITERATION"
 
 
 class DPAgent(object):
@@ -60,8 +61,8 @@ class DPAgent(object):
 
         self.estimate_transition_probabilities(env, num_iterations=num_random_steps)
 
-        v = collections.defaultdict(float)
-        policy = collections.defaultdict(int)
+        v = self.value_table
+        policy = self.policy
 
         all_states = set([k[0] for k in self.probabilities.keys()]) | set([k[2] for k in self.probabilities.keys()])
 
@@ -112,14 +113,17 @@ class DPAgent(object):
             i += 1
 
         self.policy = policy
-        return policy, v
+        self.value_table = v
 
     def learn(self, env, algorithm=DPAlgorithm.POLICY_ITERATION, gamma=0.99, theta=0.01, num_random_steps=10 ** 3,
               max_iterations=10 ** 3):
-        if algorithm != DPAlgorithm.POLICY_ITERATION:
-            raise RuntimeError("Algorithm not implemented.")
-        self.policy_iteration(env, gamma=gamma, theta=theta, num_random_steps=num_random_steps,
-                              max_iterations=max_iterations)
+        if algorithm == DPAlgorithm.POLICY_ITERATION:
+            self.policy_iteration(env, gamma=gamma, theta=theta, num_random_steps=num_random_steps,
+                                  max_iterations=max_iterations)
+        elif algorithm == DPAlgorithm.VALUE_ITERATION:
+            self.value_iteration(env, gamma=gamma, theta=theta, num_random_steps=num_random_steps)
+        else:
+            raise RuntimeError("Algorithm not implemented")
 
     def play(self, env, num_episodes=100, gamma=0.99, render=False):
         i = 0
@@ -155,17 +159,16 @@ class DPAgent(object):
 
         return episode_returns, best_result, best_return
 
-    # TODO implement
     def value_iteration(self, env, gamma=0.99, theta=0.01, num_random_steps=1000):
         if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
             raise RuntimeError("Expected Discrete action space")
 
         self.estimate_transition_probabilities(env, num_iterations=num_random_steps)
 
-        v = collections.defaultdict(float)
+        v = self.value_table
         policy = collections.defaultdict(int)
 
-        all_states = set([k(0) for k in self.transitions.keys()]) | set([k(2) for k in self.transitions.keys()])
+        all_states = set([k[0] for k in self.probabilities.keys()]) | set([k[2] for k in self.probabilities.keys()])
         # Policy evaluation
         delta = float("inf")
         while delta >= theta:
@@ -173,8 +176,8 @@ class DPAgent(object):
             for s in all_states:
                 state_action_pairs = [(st, ac) for (st, ac) in self.transitions.keys() if st == s]
                 best_value = float("-inf")
+                val = v[s]
                 for _, a in state_action_pairs:
-                    val = v[s]
                     cur_val = 0.0
                     for s2 in self.transitions[(s, a)].values():
                         cur_val += self.probabilities[(s, a, s2)] * (self.rewards[(s, a, s2)] + gamma * v[s2])
@@ -182,10 +185,10 @@ class DPAgent(object):
                     if cur_val > best_value:
                         best_value = cur_val
 
-                    if best_value > float("-inf") :
-                        logger.warning("State {} has no best action".format(s))
-                    v[s] = best_value
-                    delta = max(delta, abs(val - v[s]))
+                if best_value == float("-inf") :
+                    logger.info("State {} has no best action".format(s))
+                v[s] = best_value
+                delta = max(delta, abs(val - v[s]))
 
         for s in all_states:
 
@@ -201,15 +204,17 @@ class DPAgent(object):
                     best_value = cur_val
                     best_action = a
             if best_action is None:
-                logger.warning("No best action found for state {}".format(s))
+                logger.info("No best action found for state {}".format(s))
                 best_action = 0
             policy[s] = best_action
 
+        self.policy = policy
+        self.value_table = v
 
 
 def main():
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
+    env_name = "Taxi-v2"
     algorithm = DPAlgorithm.POLICY_ITERATION
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
