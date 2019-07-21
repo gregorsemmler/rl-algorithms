@@ -1,5 +1,25 @@
 # -*- coding: utf-8 -*-
 import json
+import collections
+
+
+class TabularPolicy(object):
+
+    def __init__(self, default_value=None):
+        if default_value is None:
+            self.policy_table = collections.defaultdict(int)
+        else:
+            self.policy_table = collections.defaultdict(lambda: default_value)
+
+    def __call__(self, *args, **kwargs):
+        arg = args[0]
+        return self.__getitem__(arg)
+
+    def __setitem__(self, key, value):
+        self.policy_table[key] = value
+
+    def __getitem__(self, item):
+        return self.policy_table[item]
 
 
 class StateActionValueTable(object):
