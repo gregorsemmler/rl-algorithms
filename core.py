@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 import json
+import numpy as np
 import collections
 
 
 class TabularPolicy(object):
 
-    def __init__(self, default_value=None):
-        if default_value is None:
+    def __init__(self, default_value=None, random_defaults=None):
+        self.random_defaults = random_defaults
+        if random_defaults is not None:
+            self.policy_table = {}
+        elif default_value is None:
             self.policy_table = collections.defaultdict(int)
         else:
             self.policy_table = collections.defaultdict(lambda: default_value)
@@ -19,7 +23,12 @@ class TabularPolicy(object):
         self.policy_table[key] = value
 
     def __getitem__(self, item):
+        if self.random_defaults is not None and item not in self.policy_table:
+            self.policy_table[item] = self._random_sample()
         return self.policy_table[item]
+
+    def _random_sample(self):
+        return np.random.choice(self.random_defaults)
 
 
 class StateActionValueTable(object):
