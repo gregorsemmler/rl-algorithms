@@ -31,6 +31,36 @@ class TabularPolicy(object):
         return np.random.choice(self.random_defaults)
 
 
+class EpsilonSoftTabularPolicy(object):
+
+    def __init__(self, action_space, epsilon):
+        if epsilon > 1 or epsilon <= 0:
+            raise ValueError("Epsilon must be less or equal to 1 and bigger than 0.")
+        if len(action_space) == 0:
+            raise ValueError("Empty Action Space was given")
+        self.action_space = action_space
+        self.epsilon = epsilon
+        self.policy_table = {}
+
+    def __call__(self, *args, **kwargs):
+        arg = args[0]
+        return self.__getitem__(arg)
+
+    def __setitem__(self, key, value):
+        new_val = np.full(len(self.action_space), self.epsilon / len(self.action_space))
+        new_val[value] = 1 - self.epsilon + (self.epsilon / len(self.action_space))
+        self.policy_table[key] = new_val
+
+    def __getitem__(self, item):
+        if item not in self.policy_table:
+            initial_val = np.full(len(self.action_space), 1)
+            initial_val = initial_val / initial_val.sum()
+            self.policy_table[item] = initial_val
+
+        val = self.policy_table[item]
+        return np.random.choice(len(val), p=val)
+
+
 class StateActionValueTable(object):
 
     def __init__(self, default_value=0.0, possible_actions=()):
