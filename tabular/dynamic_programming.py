@@ -27,7 +27,8 @@ class DPAgent(object):
         self.policy = collections.defaultdict(int)
         self.value_table = collections.defaultdict(float)
 
-    def _select_action(self, env, state):
+    # TODO refactor
+    def _select_action(self, state):
         return self.policy[state]
 
     def estimate_transition_probabilities(self, env, num_iterations=100):
@@ -140,7 +141,7 @@ class DPAgent(object):
                 if render:
                     env.render()
 
-                action = self._select_action(env, state)
+                action = self._select_action(state)
                 new_state, reward, done, info = env.step(action)
                 new_state = str(new_state)
 
