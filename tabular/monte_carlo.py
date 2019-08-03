@@ -9,7 +9,7 @@ import logging
 from tensorboardX import SummaryWriter
 from gym import envs
 
-from core import TabularPolicy, EpisodeResult, EpsilonSoftTabularPolicy, StateActionValueTable
+from core import TabularPolicy, EpisodeResult, EpsilonSoftTabularPolicy, StateActionValueTable, CustomPolicy
 
 logger = logging.getLogger(__file__)
 
@@ -115,7 +115,8 @@ class MonteCarloAgent(object):
             self.monte_carlo_prediction(env, policy, first_visit=False, gamma=gamma, num_iterations=num_iterations)
         elif algorithm == MCAlgorithm.OFF_POLICY_MC_PREDICTION:
             self.off_policy_mc_prediction(env, policy, b=b, gamma=gamma, num_iterations=num_iterations)
-        raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
+        else:
+            raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
     def on_policy_first_visit_mc_control(self, env, epsilon, gamma=0.99, num_iterations=1000):
         self.policy = EpsilonSoftTabularPolicy(range(env.action_space.n), epsilon)
@@ -196,9 +197,25 @@ class MonteCarloAgent(object):
         return episode_returns, best_result, best_return
 
 
-def main():
+def prediction():
+    policy = CustomPolicy.get_simple_blackjack_policy()
+    env_name = "Blackjack-v0"
+    algorithm = MCAlgorithm.OFF_POLICY_MC_PREDICTION
+    environment = gym.make(env_name)
+
+    k = 0
+    gamma = 0.99
+    agent = MonteCarloAgent()
+    num_iterations = 10000
+    agent.predict(environment, policy, algorithm,gamma=gamma, num_iterations=num_iterations)
+
+    print("")
+    pass
+
+
+def control():
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
+    env_name = "Blackjack-v0"
     algorithm = MCAlgorithm.ON_POLICY_FIRST_VISIT_MC_CONTROL
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
@@ -243,4 +260,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    prediction()

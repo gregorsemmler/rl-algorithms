@@ -198,13 +198,6 @@ class TDAgent(object):
         return episode_returns, best_result, best_return
 
 
-def simple_blackjack_policy(state):
-    score, dealer_score, usable_ace = state
-    if score <= 11:
-        return 1
-    return 0
-
-
 def proportional_policy_from_q(q: StateActionValueTable, state):
     """Returns a policy which assigns a probability proportional to the state-action values for a given state"""
     pairs = sorted(q[state].items(), key=lambda e: e[1])

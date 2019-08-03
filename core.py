@@ -156,3 +156,41 @@ class EpisodeResult(object):
         for k in range(len(self.rewards)):
             total_return += gamma ** k * self.rewards[k]
         return total_return
+
+
+class CustomPolicy(object):
+
+    def __init__(self, policy_func, probability_func):
+        self.policy_func = policy_func
+        self.probability_func = probability_func
+
+    def __call__(self, *args, **kwargs):
+        arg = args[0]
+        return self.policy_func(arg)
+
+    def get_probability(self, action, state):
+        return self.probability_func(action, state)
+
+    @classmethod
+    def get_simple_blackjack_policy(cls):
+        return cls(simple_blackjack_policy, simple_blackjack_probability)
+
+
+def simple_blackjack_policy(state, limit=11):
+    # We assume the state is a string form of a Blackjack-v0 state
+    split = state.split(",")
+    score = int(split[0][1:])
+    dealer_score = int(split[1])
+    usable_ace = split[2][1:-1] == "True"
+
+    if score <= limit:
+        return 1
+    return 0
+
+
+def simple_blackjack_probability(action, state, limit=11):
+    if action == simple_blackjack_policy(state, limit=limit):
+        return 1.0
+    return 0.0
+
+
