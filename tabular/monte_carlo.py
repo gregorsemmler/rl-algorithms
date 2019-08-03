@@ -17,6 +17,7 @@ logger = logging.getLogger(__file__)
 class MCAlgorithm(Enum):
     MC_FIRST_VISIT_PREDICTION = "MONTE_CARLO_FIRST_VISIT_PREDICTION"
     MC_EVERY_VISIT_PREDICTION = "MONTE_CARLO_EVERY_VISIT_PREDICTION"
+    OFF_POLICY_MC_PREDICTION = "OFF_POLICY_MONTE_CARLO_PREDICTION"
     ON_POLICY_FIRST_VISIT_MC_CONTROL = "ON_POLICY_FIRST_VISIT_MC_CONTROL"
 
 
@@ -63,11 +64,57 @@ class MonteCarloAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
-    def predict(self, env, policy, algorithm, num_iterations, gamma=0.99):
+    # TODO test
+    def off_policy_mc_prediction(self, env, policy, gamma=0.99, num_iterations=1000, b=None):
+        if b is None:
+            behavior_policy = EpsilonSoftTabularPolicy(range(env.action_space.n), 1.0) # Use random policy by default
+        else:
+            behavior_policy = b
+
+        self.q_table = StateActionValueTable()
+        c = collections.defaultdict(float)
+
+        i = 0
+        while i < num_iterations:
+            state = env.reset()
+            state = str(state)
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            while not done:
+                action = behavior_policy(state)
+                state, reward, done, _ = env.step(action)
+                state = str(state)
+                episode_result.append(action, reward, state)
+
+            g = 0
+            w = 1.0
+
+            j = len(episode_result.states) - 2
+            while j >= 0 and w != 0:
+                g = gamma * g + episode_result.rewards[j]
+                state = episode_result.states[j]
+                action = episode_result.actions[j]
+                c[(state, action)] = c[(state, action)] + w
+                addition = w / c[(state, action)] * (g - self.q_table[state, action])
+                self.q_table[state, action] = self.q_table[state, action] + addition
+                policy_prob = policy.get_probability(action, state)
+                behavior_prob = behavior_policy.get_probability(action, state)
+                w = w * (policy_prob / behavior_prob)
+                j -= 1
+
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
+    def predict(self, env, policy, algorithm, num_iterations, gamma=0.99, b=None):
         if algorithm == MCAlgorithm.MC_FIRST_VISIT_PREDICTION:
             self.monte_carlo_prediction(env, policy, first_visit=True, gamma=gamma, num_iterations=num_iterations)
         elif algorithm == MCAlgorithm.MC_EVERY_VISIT_PREDICTION:
             self.monte_carlo_prediction(env, policy, first_visit=False, gamma=gamma, num_iterations=num_iterations)
+        elif algorithm == MCAlgorithm.OFF_POLICY_MC_PREDICTION:
+            self.off_policy_mc_prediction(env, policy, b=b, gamma=gamma, num_iterations=num_iterations)
         raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
     def on_policy_first_visit_mc_control(self, env, epsilon, gamma=0.99, num_iterations=1000):

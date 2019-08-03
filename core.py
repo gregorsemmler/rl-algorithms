@@ -42,6 +42,11 @@ class EpsilonSoftTabularPolicy(object):
         self.epsilon = epsilon
         self.policy_table = {}
 
+    def _initialize_state(self, state):
+        initial_val = np.full(len(self.action_space), 1)
+        initial_val = initial_val / initial_val.sum()
+        self.policy_table[state] = initial_val
+
     def __call__(self, *args, **kwargs):
         arg = args[0]
         return self.__getitem__(arg)
@@ -51,14 +56,16 @@ class EpsilonSoftTabularPolicy(object):
         new_val[value] = 1 - self.epsilon + (self.epsilon / len(self.action_space))
         self.policy_table[key] = new_val
 
-    def __getitem__(self, item):
-        if item not in self.policy_table:
-            initial_val = np.full(len(self.action_space), 1)
-            initial_val = initial_val / initial_val.sum()
-            self.policy_table[item] = initial_val
-
-        val = self.policy_table[item]
+    def __getitem__(self, state):
+        if state not in self.policy_table:
+            self._initialize_state(state)
+        val = self.policy_table[state]
         return np.random.choice(len(val), p=val)
+
+    def get_probability(self, action, state):
+        if state not in self.policy_table:
+            self._initialize_state(state)
+        return self.policy_table[state][action]
 
 
 class StateActionValueTable(object):
