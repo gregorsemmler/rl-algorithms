@@ -19,6 +19,7 @@ class MCAlgorithm(Enum):
     MC_EVERY_VISIT_PREDICTION = "MONTE_CARLO_EVERY_VISIT_PREDICTION"
     OFF_POLICY_MC_PREDICTION = "OFF_POLICY_MONTE_CARLO_PREDICTION"
     ON_POLICY_FIRST_VISIT_MC_CONTROL = "ON_POLICY_FIRST_VISIT_MC_CONTROL"
+    OFF_POLICY_MC_CONTROL = "OFF_POLICY_MONTE_CARLO_CONTROL"
 
 
 class MonteCarloAgent(object):
@@ -64,10 +65,9 @@ class MonteCarloAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
-    # TODO test
     def off_policy_mc_prediction(self, env, policy, gamma=0.99, num_iterations=1000, b=None):
         if b is None:
-            behavior_policy = EpsilonSoftTabularPolicy(range(env.action_space.n), 1.0) # Use random policy by default
+            behavior_policy = EpsilonSoftTabularPolicy(range(env.action_space.n), 1.0)  # Use random policy by default
         else:
             behavior_policy = b
 
@@ -156,9 +156,60 @@ class MonteCarloAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
-    def learn(self, env, algorithm, epsilon, gamma=0.99, num_iterations=1000):
+    def off_policy_mc_control(self, env, gamma=0.99, num_iterations=1000, b=None, q=None):
+        if b is None:
+            behavior_policy = EpsilonSoftTabularPolicy(range(env.action_space.n), 1.0)  # Use random policy by default
+        else:
+            behavior_policy = b
+
+        if q is None:
+            self.q_table = StateActionValueTable()
+        else:
+            self.q_table = q
+
+        c = collections.defaultdict(float)
+        self.policy = TabularPolicy.greedy_from_q_table(self.q_table)
+
+        i = 0
+        while i < num_iterations:
+            state = env.reset()
+            state = str(state)
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            while not done:
+                action = behavior_policy(state)
+                state, reward, done, _ = env.step(action)
+                state = str(state)
+                episode_result.append(action, reward, state)
+
+            g = 0
+            w = 1.0
+
+            j = len(episode_result.states) - 2
+            while j >= 0:
+                g = gamma * g + episode_result.rewards[j]
+                state = episode_result.states[j]
+                action = episode_result.actions[j]
+                c[(state, action)] = c[(state, action)] + w
+                addition = w / c[(state, action)] * (g - self.q_table[state, action])
+                self.q_table[state, action] = self.q_table[state, action] + addition
+                self.policy[state] = self.q_table.get_best_action(state)
+                if action != self.policy[state]:
+                    break
+                w /= behavior_policy.get_probability(action, state)
+                j -= 1
+
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
+    def learn(self, env, algorithm, epsilon, gamma=0.99, num_iterations=1000, b=None, q=None):
         if algorithm == MCAlgorithm.ON_POLICY_FIRST_VISIT_MC_CONTROL:
             self.on_policy_first_visit_mc_control(env, epsilon, gamma=gamma, num_iterations=num_iterations)
+        elif algorithm == MCAlgorithm.OFF_POLICY_MC_CONTROL:
+            self.off_policy_mc_control(env, gamma=gamma, num_iterations=num_iterations, b=b, q=q)
         else:
             raise ValueError("Unknown Algorithm {}".format(algorithm))
 
@@ -215,8 +266,8 @@ def prediction():
 
 def control():
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "Blackjack-v0"
-    algorithm = MCAlgorithm.ON_POLICY_FIRST_VISIT_MC_CONTROL
+    env_name = "FrozenLake-v0"
+    algorithm = MCAlgorithm.OFF_POLICY_MC_CONTROL
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -260,4 +311,4 @@ def control():
 
 
 if __name__ == "__main__":
-    prediction()
+    control()

@@ -4,70 +4,6 @@ import numpy as np
 import collections
 
 
-class TabularPolicy(object):
-
-    def __init__(self, default_value=None, random_defaults=None):
-        self.random_defaults = random_defaults
-        if random_defaults is not None:
-            self.policy_table = {}
-        elif default_value is None:
-            self.policy_table = collections.defaultdict(int)
-        else:
-            self.policy_table = collections.defaultdict(lambda: default_value)
-
-    def __call__(self, *args, **kwargs):
-        arg = args[0]
-        return self.__getitem__(arg)
-
-    def __setitem__(self, key, value):
-        self.policy_table[key] = value
-
-    def __getitem__(self, item):
-        if self.random_defaults is not None and item not in self.policy_table:
-            self.policy_table[item] = self._random_sample()
-        return self.policy_table[item]
-
-    def _random_sample(self):
-        return np.random.choice(self.random_defaults)
-
-
-class EpsilonSoftTabularPolicy(object):
-
-    def __init__(self, action_space, epsilon):
-        if epsilon > 1 or epsilon <= 0:
-            raise ValueError("Epsilon must be less or equal to 1 and bigger than 0.")
-        if len(action_space) == 0:
-            raise ValueError("Empty Action Space was given")
-        self.action_space = action_space
-        self.epsilon = epsilon
-        self.policy_table = {}
-
-    def _initialize_state(self, state):
-        initial_val = np.full(len(self.action_space), 1)
-        initial_val = initial_val / initial_val.sum()
-        self.policy_table[state] = initial_val
-
-    def __call__(self, *args, **kwargs):
-        arg = args[0]
-        return self.__getitem__(arg)
-
-    def __setitem__(self, key, value):
-        new_val = np.full(len(self.action_space), self.epsilon / len(self.action_space))
-        new_val[value] = 1 - self.epsilon + (self.epsilon / len(self.action_space))
-        self.policy_table[key] = new_val
-
-    def __getitem__(self, state):
-        if state not in self.policy_table:
-            self._initialize_state(state)
-        val = self.policy_table[state]
-        return np.random.choice(len(val), p=val)
-
-    def get_probability(self, action, state):
-        if state not in self.policy_table:
-            self._initialize_state(state)
-        return self.policy_table[state][action]
-
-
 class StateActionValueTable(object):
 
     def __init__(self, default_value=0.0, possible_actions=()):
@@ -136,6 +72,78 @@ class StateActionValueTable(object):
         self.q = content["q"]
         self.default_value = content["default_value"]
         self.possible_actions = content["possible_actions"]
+
+
+class TabularPolicy(object):
+
+    def __init__(self, default_value=None, random_defaults=None):
+        self.random_defaults = random_defaults
+        if random_defaults is not None:
+            self.policy_table = {}
+        elif default_value is None:
+            self.policy_table = collections.defaultdict(int)
+        else:
+            self.policy_table = collections.defaultdict(lambda: default_value)
+
+    def __call__(self, *args, **kwargs):
+        arg = args[0]
+        return self.__getitem__(arg)
+
+    def __setitem__(self, key, value):
+        self.policy_table[key] = value
+
+    def __getitem__(self, item):
+        if self.random_defaults is not None and item not in self.policy_table:
+            self.policy_table[item] = self._random_sample()
+        return self.policy_table[item]
+
+    def _random_sample(self):
+        return np.random.choice(self.random_defaults)
+
+    @classmethod
+    def greedy_from_q_table(cls, q_table: StateActionValueTable):
+        policy = cls()
+        for state in q_table.q.keys():
+            action = q_table.get_best_action(state)
+            policy[state] = action
+        return policy
+
+
+class EpsilonSoftTabularPolicy(object):
+
+    def __init__(self, action_space, epsilon):
+        if epsilon > 1 or epsilon <= 0:
+            raise ValueError("Epsilon must be less or equal to 1 and bigger than 0.")
+        if len(action_space) == 0:
+            raise ValueError("Empty Action Space was given")
+        self.action_space = action_space
+        self.epsilon = epsilon
+        self.policy_table = {}
+
+    def _initialize_state(self, state):
+        initial_val = np.full(len(self.action_space), 1)
+        initial_val = initial_val / initial_val.sum()
+        self.policy_table[state] = initial_val
+
+    def __call__(self, *args, **kwargs):
+        arg = args[0]
+        return self.__getitem__(arg)
+
+    def __setitem__(self, key, value):
+        new_val = np.full(len(self.action_space), self.epsilon / len(self.action_space))
+        new_val[value] = 1 - self.epsilon + (self.epsilon / len(self.action_space))
+        self.policy_table[key] = new_val
+
+    def __getitem__(self, state):
+        if state not in self.policy_table:
+            self._initialize_state(state)
+        val = self.policy_table[state]
+        return np.random.choice(len(val), p=val)
+
+    def get_probability(self, action, state):
+        if state not in self.policy_table:
+            self._initialize_state(state)
+        return self.policy_table[state][action]
 
 
 class EpisodeResult(object):
