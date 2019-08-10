@@ -107,6 +107,13 @@ class TabularPolicy(object):
             policy[state] = action
         return policy
 
+    @classmethod
+    def sample_frozen_lake_policy(cls):
+        policy = cls()
+        policy.policy_table = {"0": 1, "1": 1, "2": 1, "3": 0, "4": 0, "5": 0, "6": 1, "7": 0, "8": 1, "9": 1, "10": 0,
+                               "11": 0, "12": 0, "13": 0, "14": 2, "15": 0}
+        return policy
+
 
 class EpsilonGreedyTabularPolicy(object):
 
@@ -150,6 +157,15 @@ class EpsilonGreedyTabularPolicy(object):
         for state in q_table.q.keys():
             action = q_table.get_best_action(state)
             policy[state] = action
+        return policy
+
+    @classmethod
+    def sample_frozen_lake_policy(cls, epsilon):
+        policy_table = {"0": 1, "1": 1, "2": 1, "3": 0, "4": 0, "5": 0, "6": 1, "7": 0, "8": 1, "9": 1, "10": 0,
+                        "11": 0, "12": 0, "13": 0, "14": 2, "15": 0}
+        policy = cls(4, epsilon)
+        for state in policy_table:
+            policy[state] = policy_table[state]
         return policy
 
 

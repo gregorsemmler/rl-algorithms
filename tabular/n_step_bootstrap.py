@@ -203,7 +203,7 @@ def prediction():
 
 def control():
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "Taxi-v2"
+    env_name = "FrozenLake-v0"
     algorithm = NStepAlgorithm.N_STEP_SARSA
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
