@@ -8,7 +8,7 @@ import logging
 from tensorboardX import SummaryWriter
 from gym import envs
 
-from core import TabularPolicy, EpisodeResult, EpsilonSoftTabularPolicy, StateActionValueTable, CustomPolicy
+from core import TabularPolicy, EpisodeResult, EpsilonGreedyTabularPolicy, StateActionValueTable, CustomPolicy
 
 logger = logging.getLogger(__file__)
 
@@ -66,7 +66,7 @@ class MonteCarloAgent(object):
 
     def off_policy_mc_prediction(self, env, policy, gamma=0.99, num_iterations=1000, b=None):
         if b is None:
-            behavior_policy = EpsilonSoftTabularPolicy(range(env.action_space.n), 1.0)  # Use random policy by default
+            behavior_policy = EpsilonGreedyTabularPolicy(env.action_space.n, 1.0)  # Use random policy by default
         else:
             behavior_policy = b
 
@@ -118,7 +118,7 @@ class MonteCarloAgent(object):
             raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
     def on_policy_first_visit_mc_control(self, env, epsilon, gamma=0.99, num_iterations=1000):
-        self.policy = EpsilonSoftTabularPolicy(range(env.action_space.n), epsilon)
+        self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon)
         self.q_table = StateActionValueTable(possible_actions=range(env.action_space.n))
         returns = collections.defaultdict(list)
 
@@ -157,7 +157,7 @@ class MonteCarloAgent(object):
 
     def off_policy_mc_control(self, env, gamma=0.99, num_iterations=1000, b=None, q=None):
         if b is None:
-            behavior_policy = EpsilonSoftTabularPolicy(range(env.action_space.n), 1.0)  # Use random policy by default
+            behavior_policy = EpsilonGreedyTabularPolicy(env.action_space.n, 1.0)  # Use random policy by default
         else:
             behavior_policy = b
 
@@ -167,7 +167,7 @@ class MonteCarloAgent(object):
             self.q_table = q
 
         c = collections.defaultdict(float)
-        self.policy = TabularPolicy.greedy_from_q_table(self.q_table)
+        self.policy = TabularPolicy.greedy_from_q(self.q_table)
 
         i = 0
         while i < num_iterations:

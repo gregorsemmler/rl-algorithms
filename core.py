@@ -100,7 +100,7 @@ class TabularPolicy(object):
         return np.random.choice(self.random_defaults)
 
     @classmethod
-    def greedy_from_q_table(cls, q_table: StateActionValueTable):
+    def greedy_from_q(cls, q_table: StateActionValueTable):
         policy = cls()
         for state in q_table.q.keys():
             action = q_table.get_best_action(state)
@@ -108,14 +108,14 @@ class TabularPolicy(object):
         return policy
 
 
-class EpsilonSoftTabularPolicy(object):
+class EpsilonGreedyTabularPolicy(object):
 
-    def __init__(self, action_space, epsilon):
+    def __init__(self, action_space_n, epsilon):
         if epsilon > 1 or epsilon <= 0:
             raise ValueError("Epsilon must be less or equal to 1 and bigger than 0.")
-        if len(action_space) == 0:
+        if action_space_n <= 0:
             raise ValueError("Empty Action Space was given")
-        self.action_space = action_space
+        self.action_space = range(action_space_n)
         self.epsilon = epsilon
         self.policy_table = {}
 
@@ -143,6 +143,14 @@ class EpsilonSoftTabularPolicy(object):
         if state not in self.policy_table:
             self._initialize_state(state)
         return self.policy_table[state][action]
+
+    @classmethod
+    def from_q(cls, action_space_n, epsilon, q_table: StateActionValueTable):
+        policy = cls(action_space_n, epsilon)
+        for state in q_table.q.keys():
+            action = q_table.get_best_action(state)
+            policy[state] = action
+        return policy
 
 
 class EpisodeResult(object):
