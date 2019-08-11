@@ -18,6 +18,7 @@ class NStepAlgorithm(Enum):
     N_STEP_TD_PREDICTION = "N_STEP_TD_PREDICTION"
     N_STEP_SARSA = "N_STEP_SARSA"
     OFF_POLICY_N_STEP_SARSA = "OFF_POLICY_N_STEP_SARSA"
+    N_STEP_TREE_BACKUP = "N_STEP_TREE_BACKUP"
 
 
 class NStepAgent(object):
@@ -164,7 +165,7 @@ class NStepAgent(object):
             tau = -inf
 
             # Choose first action without taking it
-            action = self.policy(state)
+            action = behavior_policy(state)
             episode_result.actions.append(action)
 
             j = 0
@@ -175,13 +176,13 @@ class NStepAgent(object):
                     episode_result.states.append(state)
                     episode_result.rewards.append(reward)
 
-                    action = self.policy(state)
+                    action = behavior_policy(state)
                     episode_result.actions.append(action)
 
                     if done:
                         T = j + 1
                 else:
-                    action = self.policy(state)
+                    action = behavior_policy(state)
                     episode_result.actions.append(action)
 
                 tau = j - self.n + 1
@@ -210,6 +211,83 @@ class NStepAgent(object):
                         g += gamma ** self.n * self.q_table[s_tau_n, a_tau_n]
 
                     self.q_table[s_tau, a_tau] += alpha * rho * (g - self.q_table[s_tau, a_tau])
+                    self.policy[s_tau] = self.q_table.get_best_action(s_tau)
+
+                j += 1
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
+    # TODO test
+    def n_step_tree_backup(self, env, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None):
+        if q is None:
+            self.q_table = StateActionValueTable()
+        else:
+            self.q_table = q
+
+        if policy is None:
+            self.policy = EpsilonGreedyTabularPolicy.from_q(env.action_space.n, epsilon, self.q_table)
+        else:
+            self.policy = policy
+
+        i = 0
+        while i < num_iterations:
+            state = env.reset()
+            state = str(state)
+            episode_result = EpisodeResult(env, state)
+            T = inf
+            tau = -inf
+
+            # Choose first action without taking it
+            action = self.policy(state)
+            episode_result.actions.append(action)
+
+            j = 0
+            while tau != T - 1:
+                if j < T:
+                    state, reward, done, _ = env.step(action)
+                    state = str(state)
+                    episode_result.states.append(state)
+                    episode_result.rewards.append(reward)
+
+                    action = self.policy(state)
+                    episode_result.actions.append(action)
+
+                    if done:
+                        T = j + 1
+                else:
+                    action = self.policy(state)
+                    episode_result.actions.append(action)
+
+                tau = j - self.n + 1
+                if tau >= 0:
+                    if j + 1 >= T:
+                        g = episode_result.rewards[-1]
+                    else:
+                        g = episode_result.rewards[j]
+                        s_next = episode_result.states[j + 1]
+                        add = sum([self.policy.get_probability(a, s_next) * self.q_table[s_next, a] for a in
+                                   range(env.action_space.n)])
+                        add *= gamma
+                        g += add
+
+                    k = min(j, T - 1)
+                    while k >= tau + 1:
+                        r_k = episode_result.rewards[k - 1]
+                        s_k = episode_result.states[k]
+                        a_k = episode_result.actions[k]
+                        add = sum([self.policy.get_probability(a, s_k) * self.q_table[s_k, a] for a in
+                                   range(env.action_space.n) if a != a_k])
+                        add *= gamma
+                        add += self.policy.get_probability(a_k, s_k) * gamma
+                        g = r_k + add
+
+                    s_tau = episode_result.states[tau]
+                    a_tau = episode_result.actions[tau]
+                    sum_up_to = min(tau + self.n, T)
+
+                    self.q_table[s_tau, a_tau] += alpha * (g - self.q_table[s_tau, a_tau])
                     self.policy[s_tau] = self.q_table.get_best_action(s_tau)
 
                 j += 1
