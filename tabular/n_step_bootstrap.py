@@ -72,7 +72,7 @@ class NStepAgent(object):
                 print("{} iterations done".format(i))
         pass
 
-    def n_step_td_sarsa(self, env, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None):
+    def n_step_sarsa(self, env, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None):
         if q is None:
             self.q_table = StateActionValueTable()
         else:
@@ -145,7 +145,7 @@ class NStepAgent(object):
 
     def learn(self, env, algorithm, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None):
         if algorithm == NStepAlgorithm.N_STEP_SARSA:
-            self.n_step_td_sarsa(env, epsilon, alpha=alpha, policy=policy, q=q, gamma=gamma, num_iterations=num_iterations)
+            self.n_step_sarsa(env, epsilon, alpha=alpha, policy=policy, q=q, gamma=gamma, num_iterations=num_iterations)
         else:
             raise ValueError("Unknown Algorithm {}".format(algorithm))
 
