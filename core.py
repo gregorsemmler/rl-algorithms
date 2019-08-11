@@ -152,6 +152,10 @@ class EpsilonGreedyTabularPolicy(object):
         return self.policy_table[state][action]
 
     @classmethod
+    def random_policy(cls, action_space_n):
+        return cls(action_space_n, 1.0)
+
+    @classmethod
     def from_q(cls, action_space_n, epsilon, q_table: StateActionValueTable):
         policy = cls(action_space_n, epsilon)
         for state in q_table.q.keys():

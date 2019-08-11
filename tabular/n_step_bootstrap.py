@@ -17,6 +17,7 @@ logger = logging.getLogger(__file__)
 class NStepAlgorithm(Enum):
     N_STEP_TD_PREDICTION = "N_STEP_TD_PREDICTION"
     N_STEP_SARSA = "N_STEP_SARSA"
+    OFF_POLICY_N_STEP_SARSA = "OFF_POLICY_N_STEP_SARSA"
 
 
 class NStepAgent(object):
@@ -137,15 +138,98 @@ class NStepAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
+    def off_policy_n_step_sarsa(self, env, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None,
+                                b=None):
+        if b is None:
+            behavior_policy = EpsilonGreedyTabularPolicy.random_policy(env.action_space.n)
+        else:
+            behavior_policy = b
+
+        if q is None:
+            self.q_table = StateActionValueTable()
+        else:
+            self.q_table = q
+
+        if policy is None:
+            self.policy = EpsilonGreedyTabularPolicy.from_q(env.action_space.n, epsilon, self.q_table)
+        else:
+            self.policy = policy
+
+        i = 0
+        while i < num_iterations:
+            state = env.reset()
+            state = str(state)
+            episode_result = EpisodeResult(env, state)
+            T = inf
+            tau = -inf
+
+            # Choose first action without taking it
+            action = self.policy(state)
+            episode_result.actions.append(action)
+
+            j = 0
+            while tau != T - 1:
+                if j < T:
+                    state, reward, done, _ = env.step(action)
+                    state = str(state)
+                    episode_result.states.append(state)
+                    episode_result.rewards.append(reward)
+
+                    action = self.policy(state)
+                    episode_result.actions.append(action)
+
+                    if done:
+                        T = j + 1
+                else:
+                    action = self.policy(state)
+                    episode_result.actions.append(action)
+
+                tau = j - self.n + 1
+                if tau >= 0:
+                    rho = 1.0  # importance sampling ratio
+                    rho_sum_up_to = min(tau + self.n - 1, T - 1)
+                    rho_idx = tau + 1
+                    while rho_idx <= rho_sum_up_to:
+                        a = episode_result.actions[rho_idx]
+                        s = episode_result.states[rho_idx]
+                        rho *= self.policy.get_probability(a, s) / behavior_policy.get_probability(a, s)
+                        rho_idx += 1
+
+                    s_tau = episode_result.states[tau]
+                    a_tau = episode_result.actions[tau]
+                    sum_up_to = min(tau + self.n, T)
+                    k = tau + 1
+                    g = 0.0
+                    while k <= sum_up_to:
+                        g += gamma ** (k - tau - 1) * episode_result.rewards[k - 1]
+                        k += 1
+
+                    if tau + self.n < T:
+                        s_tau_n = episode_result.states[tau + self.n]
+                        a_tau_n = episode_result.actions[tau + self.n]
+                        g += gamma ** self.n * self.q_table[s_tau_n, a_tau_n]
+
+                    self.q_table[s_tau, a_tau] += alpha * rho * (g - self.q_table[s_tau, a_tau])
+                    self.policy[s_tau] = self.q_table.get_best_action(s_tau)
+
+                j += 1
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
     def predict(self, env, policy, algorithm, num_iterations, gamma=0.99):
         if algorithm == NStepAlgorithm.N_STEP_TD_PREDICTION:
             self.n_step_td_prediction(env, policy, gamma=gamma, num_iterations=num_iterations)
         else:
             raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
-    def learn(self, env, algorithm, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None):
+    def learn(self, env, algorithm, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, b=None, q=None, policy=None):
         if algorithm == NStepAlgorithm.N_STEP_SARSA:
             self.n_step_sarsa(env, epsilon, alpha=alpha, policy=policy, q=q, gamma=gamma, num_iterations=num_iterations)
+        elif algorithm == NStepAlgorithm.OFF_POLICY_N_STEP_SARSA:
+            self.off_policy_n_step_sarsa(env, epsilon, alpha=alpha, policy=policy, q=q, b=b, gamma=gamma,
+                                         num_iterations=num_iterations)
         else:
             raise ValueError("Unknown Algorithm {}".format(algorithm))
 
@@ -185,15 +269,14 @@ class NStepAgent(object):
 
 
 def prediction():
-    policy = CustomPolicy.get_simple_blackjack_policy()
-    env_name = "Blackjack-v0"
+    policy = TabularPolicy.sample_frozen_lake_policy()
+    env_name = "FrozenLake-v0"
     algorithm = NStepAlgorithm.N_STEP_TD_PREDICTION
     environment = gym.make(env_name)
 
-    k = 0
     gamma = 0.99
     n = 5
-    agent = NStepAgent(2)
+    agent = NStepAgent(n)
     num_iterations = 10000
     agent.predict(environment, policy, algorithm, gamma=gamma, num_iterations=num_iterations)
 
@@ -204,7 +287,7 @@ def prediction():
 def control():
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "FrozenLake-v0"
-    algorithm = NStepAlgorithm.N_STEP_SARSA
+    algorithm = NStepAlgorithm.OFF_POLICY_N_STEP_SARSA
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -215,7 +298,7 @@ def control():
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
-    n = 8
+    n = 3
     max_rounds = 10000
     agent = NStepAgent(n)
     test_best_result, test_best_return = None, float("-inf")
@@ -223,7 +306,7 @@ def control():
     num_iterations = 1000
     num_test_episodes = 100
     epsilon = 0.1
-    alpha = 0.2
+    alpha = 0.5
     while True:
         agent.learn(environment, algorithm, epsilon, alpha=alpha, gamma=gamma, num_iterations=num_iterations)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
