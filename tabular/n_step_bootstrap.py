@@ -219,8 +219,12 @@ class NStepAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
-    # TODO test
-    def n_step_tree_backup(self, env, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None):
+    def n_step_tree_backup(self, env, epsilon, alpha=0.5, gamma=0.99, num_iterations=1000, q=None, policy=None, b=None):
+        if b is None:
+            behavior_policy = EpsilonGreedyTabularPolicy.random_policy(env.action_space.n)
+        else:
+            behavior_policy = b
+
         if q is None:
             self.q_table = StateActionValueTable()
         else:
@@ -240,7 +244,7 @@ class NStepAgent(object):
             tau = -inf
 
             # Choose first action without taking it
-            action = self.policy(state)
+            action = behavior_policy(state)
             episode_result.actions.append(action)
 
             j = 0
@@ -251,13 +255,13 @@ class NStepAgent(object):
                     episode_result.states.append(state)
                     episode_result.rewards.append(reward)
 
-                    action = self.policy(state)
+                    action = behavior_policy(state)
                     episode_result.actions.append(action)
 
                     if done:
                         T = j + 1
                 else:
-                    action = self.policy(state)
+                    action = behavior_policy(state)
                     episode_result.actions.append(action)
 
                 tau = j - self.n + 1
@@ -279,13 +283,13 @@ class NStepAgent(object):
                         a_k = episode_result.actions[k]
                         add = sum([self.policy.get_probability(a, s_k) * self.q_table[s_k, a] for a in
                                    range(env.action_space.n) if a != a_k])
+                        add += self.policy.get_probability(a_k, s_k) * g
                         add *= gamma
-                        add += self.policy.get_probability(a_k, s_k) * gamma
                         g = r_k + add
+                        k -= 1
 
                     s_tau = episode_result.states[tau]
                     a_tau = episode_result.actions[tau]
-                    sum_up_to = min(tau + self.n, T)
 
                     self.q_table[s_tau, a_tau] += alpha * (g - self.q_table[s_tau, a_tau])
                     self.policy[s_tau] = self.q_table.get_best_action(s_tau)
@@ -308,6 +312,9 @@ class NStepAgent(object):
         elif algorithm == NStepAlgorithm.OFF_POLICY_N_STEP_SARSA:
             self.off_policy_n_step_sarsa(env, epsilon, alpha=alpha, policy=policy, q=q, b=b, gamma=gamma,
                                          num_iterations=num_iterations)
+        elif algorithm == NStepAlgorithm.N_STEP_TREE_BACKUP:
+            self.n_step_tree_backup(env, epsilon, alpha=alpha, policy=policy, q=q, b=b, gamma=gamma,
+                                    num_iterations=num_iterations)
         else:
             raise ValueError("Unknown Algorithm {}".format(algorithm))
 
@@ -365,7 +372,7 @@ def prediction():
 def control():
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "FrozenLake-v0"
-    algorithm = NStepAlgorithm.OFF_POLICY_N_STEP_SARSA
+    algorithm = NStepAlgorithm.N_STEP_TREE_BACKUP
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
