@@ -113,7 +113,7 @@ class DPAgent(object):
                     cur_val = 0.0
                     for s2 in self.estimator.transitions[(s, a)].keys():
                         cur_val += self.estimator.probabilities[(s, a, s2)] * (
-                                    self.estimator.rewards[(s, a, s2)] + gamma * self.v_table[s2])
+                                self.estimator.rewards[(s, a, s2)] + gamma * self.v_table[s2])
 
                     if cur_val > best_value:
                         best_value = cur_val
@@ -177,10 +177,6 @@ class DPAgent(object):
                 best_action = 0
             self.policy[s] = best_action
 
-    def learn(self, env, algorithm=DPAlgorithm.POLICY_ITERATION, gamma=0.99, theta=0.01, num_random_steps=1000,
-              max_iterations=1000):
-        raise RuntimeError("Algorithm not implemented")
-
     def play(self, env, num_episodes=100, gamma=0.99, render=False):
         i = 0
         best_return = float("-inf")
@@ -215,9 +211,21 @@ class DPAgent(object):
 
         return episode_returns, best_result, best_return
 
-    def predict(self, env, policy, algorithm, num_iterations, gamma=0.99, v=None, b=None):
+    def predict(self, env, policy, algorithm, num_iterations, gamma=0.99, theta=0.01, num_random_steps=1000, v=None,
+                b=None):
         if algorithm == DPAlgorithm.POLICY_ITERATION:
-            self.policy_iteration(env, policy, b=b, v=v, gamma=gamma, max_iterations=num_iterations)
+            self.policy_iteration(env, policy, b=b, v=v, gamma=gamma, theta=theta,
+                                  num_exploration_steps=num_random_steps, max_iterations=num_iterations)
+        elif algorithm == DPAlgorithm.VALUE_ITERATION:
+            self.value_iteration(env, policy, b=b, v=v, gamma=gamma)
+        else:
+            raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
+
+    def learn(self, env, policy, algorithm, num_iterations, gamma=0.99, theta=0.01, num_random_steps=1000, v=None,
+              b=None):
+        if algorithm == DPAlgorithm.POLICY_ITERATION:
+            self.policy_iteration(env, policy, b=b, v=v, gamma=gamma, theta=theta,
+                                  num_exploration_steps=num_random_steps, max_iterations=num_iterations)
         elif algorithm == DPAlgorithm.VALUE_ITERATION:
             self.value_iteration(env, policy, b=b, v=v, gamma=gamma)
         else:
@@ -230,7 +238,6 @@ def prediction():
     algorithm = DPAlgorithm.VALUE_ITERATION
     environment = gym.make(env_name)
 
-    k = 0
     gamma = 0.99
     agent = DPAgent()
     num_iterations = 10000
@@ -241,9 +248,10 @@ def prediction():
 
 
 def control():
+    policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "FrozenLake-v0"
-    algorithm = MCAlgorithm.OFF_POLICY_MC_CONTROL
+    algorithm = DPAlgorithm.POLICY_ITERATION
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -254,15 +262,14 @@ def control():
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
-    max_rounds = 10000
-    agent = MonteCarloAgent()
+    max_rounds = 1000
+    agent = DPAgent()
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
     num_iterations = 1000
     num_test_episodes = 100
-    epsilon = 0.6
     while True:
-        agent.learn(environment, algorithm, epsilon, gamma=gamma, num_iterations=num_iterations)
+        agent.predict(environment, policy, algorithm, b=policy, gamma=gamma, num_iterations=num_iterations)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
@@ -287,4 +294,4 @@ def control():
 
 
 if __name__ == "__main__":
-    prediction()
+    control()
