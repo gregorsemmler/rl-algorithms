@@ -10,7 +10,6 @@ from tensorboardX import SummaryWriter
 from gym import envs
 
 from core import TabularPolicy, EpisodeResult, EpsilonGreedyTabularPolicy, StateActionValueTable, CustomPolicy
-from tabular.old_dynamic_programming import logger
 
 logger = logging.getLogger(__file__)
 
@@ -28,22 +27,26 @@ class EnvironmentEstimator(object):
         self.probabilities = collections.defaultdict(float)
         self.states = set()
 
-    def estimate(self, env, num_iterations=100):
+    def estimate(self, env, b=None, num_iterations=100):
         """
         Performs a number of random actions and estimates the state-action-state probabilities depending on how often
         they occurred during this time.
         :param env: The environment to be evaluated
+        :param b: An optional exploration policy to use
         :param num_iterations: how many steps to perform
         :return:
         """
         state = env.reset()
-        self.states.update(state)
+        self.states.add(str(state))
         for _ in range(num_iterations):
-            action = env.action_space.sample()
+            if b is not None:
+                action = b(str(state))
+            else:
+                action = env.action_space.sample()
             new_state, reward, is_done, _ = env.step(action)
             self.rewards[(str(state), action, str(new_state))] = reward
             self.transitions[(str(state), action)][str(new_state)] += 1
-            self.states.update(new_state)
+            self.states.add(str(new_state))
             state = env.reset() if is_done else new_state
 
         for s, a in self.transitions.keys():
@@ -63,8 +66,7 @@ class DPAgent(object):
         self.policy = None
         self.v_table = None
 
-    # TODO test
-    def policy_iteration(self, env, policy=None, v=None, gamma=0.99, theta=0.001, num_exploration_steps=1000, max_iterations=1000):
+    def policy_iteration(self, env, policy=None, v=None, b=None, gamma=0.99, theta=0.001, num_exploration_steps=1000, max_iterations=1000):
         if not isinstance(env.action_space, gym.spaces.discrete.Discrete):
             raise RuntimeError("Expected Discrete action space")
 
@@ -78,9 +80,9 @@ class DPAgent(object):
         else:
             self.v_table = v
 
-        self.estimator.estimate(env, num_iterations=num_exploration_steps)
+        self.estimator.estimate(env, b=b, num_iterations=num_exploration_steps)
 
-        all_states = self.estimator.states
+        all_states = sorted(self.estimator.states)
 
         policy_stable = False
         i = 0
@@ -117,7 +119,7 @@ class DPAgent(object):
                         best_action = a
                 if best_action is None:
                     logger.debug("No best action found for state {}".format(s))
-                    best_action = np.random.randint(env.action_space.n)
+                    best_action = 0
                 self.policy[s] = best_action
                 if best_action is not None and best_action != old_action:
                     logger.debug("policy[{}] -> {}".format(s, best_action))
@@ -222,3 +224,75 @@ class DPAgent(object):
 
         self.policy = policy
         self.v_table = v
+
+    def predict(self, env, policy, algorithm, num_iterations, gamma=0.99, v=None,  b=None):
+        if algorithm == DPAlgorithm.POLICY_ITERATION:
+            self.policy_iteration(env, policy, b=b, gamma=gamma, max_iterations=num_iterations)
+        else:
+            raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
+
+
+def prediction():
+    policy = TabularPolicy.sample_frozen_lake_policy()
+    env_name = "FrozenLake-v0"
+    algorithm = DPAlgorithm.POLICY_ITERATION
+    environment = gym.make(env_name)
+
+    k = 0
+    gamma = 0.99
+    agent = DPAgent()
+    num_iterations = 10000
+    agent.predict(environment, policy, algorithm, b=policy, gamma=gamma, num_iterations=num_iterations)
+
+    print("")
+    pass
+
+
+def control():
+    env_names = sorted(envs.registry.env_specs.keys())
+    env_name = "FrozenLake-v0"
+    algorithm = MCAlgorithm.OFF_POLICY_MC_CONTROL
+    env_spec = envs.registry.env_specs[env_name]
+    environment = gym.make(env_name)
+    test_env = gym.make(env_name)
+
+    k = 0
+    goal_returns = env_spec.reward_threshold
+    gamma = 0.99
+
+    writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
+
+    max_rounds = 10000
+    agent = MonteCarloAgent()
+    test_best_result, test_best_return = None, float("-inf")
+    test_returns = []
+    num_iterations = 1000
+    num_test_episodes = 100
+    epsilon = 0.6
+    while True:
+        agent.learn(environment, algorithm, epsilon, gamma=gamma, num_iterations=num_iterations)
+        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
+                                                                                        num_episodes=num_test_episodes)
+        for r_idx, r in enumerate(round_test_returns):
+            writer.add_scalar("test_return", r, len(test_returns) + r_idx)
+
+        test_returns.extend(round_test_returns)
+
+        if test_best_return < round_test_best_return:
+            test_best_return = round_test_best_return
+            test_best_result = round_test_best_result
+
+        average_test_return = 0.0 if len(round_test_returns) == 0 else sum(round_test_returns) / len(round_test_returns)
+        logger.warning("Average returns: {}".format(average_test_return))
+
+        if (goal_returns is not None and average_test_return >= goal_returns) or k >= max_rounds:
+            logger.warning("Done in {} rounds!".format(k))
+            break
+        k += 1
+
+    print("")
+    pass
+
+
+if __name__ == "__main__":
+    prediction()
