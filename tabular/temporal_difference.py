@@ -17,15 +17,15 @@ logger = logging.getLogger(__file__)
 class TDAlgorithm(Enum):
     TD0_PREDICTION = "TD0_PREDICTION"
     Q_LEARNING = "Q_LEARNING"
-    EPSILON_GREEDY_SARSA = "EPSILON_GREEDY_SARSA"
-    EPSILON_GREEDY_EXPECTED_SARSA = "EPSILON_GREEDY_EXPECTED_SARSA"
+    SARSA = "SARSA"
+    EXPECTED_SARSA = "EXPECTED_SARSA"
     DOUBLE_Q_LEARNING = "DOUBLE_Q_LEARNING"
 
 
 class TDAgent(object):
 
     def __init__(self):
-        self.v_table = {}
+        self.v_table = None
         self.policy = None
         self.q_table = None
         self.q_table2 = None
@@ -96,13 +96,48 @@ class TDAgent(object):
         else:
             raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
-    def learn(self, env, policy, algorithm, num_iterations, gamma=0.99, alpha=0.5, num_random_steps=1000, v=None,
-              b=None):
-        if algorithm == DPAlgorithm.POLICY_ITERATION:
-            self.policy_iteration(env, policy, b=b, v=v, gamma=gamma, theta=alpha,
-                                  num_exploration_steps=num_random_steps, max_iterations=num_iterations)
-        elif algorithm == DPAlgorithm.VALUE_ITERATION:
-            self.value_iteration(env, policy, b=b, v=v, gamma=gamma)
+    def tabular_sarsa(self, env, policy=None, num_iterations=1000, gamma=0.99, alpha=0.5, epsilon=0.1):
+        self.q_table = StateActionValueTable()
+
+        if policy is not None:
+            self.policy = policy
+        else:
+            self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon)
+
+        i = 0
+        while i < num_iterations:
+            state = env.reset()
+            state = str(state)
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            # choose first action without taking it
+            action = self.policy(state)
+
+            while not done:
+                new_state, reward, done, _ = env.step(action)
+                new_state = str(new_state)
+                episode_result.append(action, reward, new_state)
+
+                new_action = self.policy(new_state)
+
+                update = reward + gamma * self.q_table[new_state, new_action] - self.q_table[state, action]
+                update *= alpha
+                self.q_table[state, action] += update
+                self.policy[state] = self.q_table.get_best_action(state)
+                state = new_state
+                action = new_action
+
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+        pass
+
+    def learn(self, env, algorithm, num_iterations, policy=None, gamma=0.99, alpha=0.5, epsilon=0.1):
+        if algorithm == TDAlgorithm.SARSA:
+            self.tabular_sarsa(env, policy=policy, num_iterations=num_iterations, gamma=gamma, alpha=alpha,
+                               epsilon=epsilon)
         else:
             raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
@@ -124,10 +159,9 @@ def prediction():
 
 
 def control():
-    policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "FrozenLake-v0"
-    algorithm = DPAlgorithm.POLICY_ITERATION
+    algorithm = TDAlgorithm.SARSA
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -135,17 +169,19 @@ def control():
     k = 0
     goal_returns = env_spec.reward_threshold
     gamma = 0.99
+    alpha = 0.5
+    epsilon = 0.1
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
     max_rounds = 1000
-    agent = DPAgent()
+    agent = TDAgent()
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
     num_iterations = 1000
     num_test_episodes = 100
     while True:
-        agent.predict(environment, policy, algorithm, b=policy, gamma=gamma, num_iterations=num_iterations)
+        agent.learn(environment, algorithm, num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
@@ -170,4 +206,4 @@ def control():
 
 
 if __name__ == "__main__":
-    prediction()
+    control()

@@ -266,7 +266,7 @@ def control():
     num_iterations = 1000
     num_test_episodes = 100
     while True:
-        agent.predict(environment, policy, algorithm, b=policy, gamma=gamma, num_iterations=num_iterations)
+        agent.learn(environment, policy, algorithm, b=policy, gamma=gamma, num_iterations=num_iterations)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):

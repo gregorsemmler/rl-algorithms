@@ -56,9 +56,9 @@ class TDAgent(object):
         if algorithm == TDAlgorithm.Q_LEARNING:
             # Get Qmax for Q Learning
             return q_table.get_q_max(state)
-        if algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
+        if algorithm == TDAlgorithm.SARSA:
             return q_table[state, action]
-        if algorithm == TDAlgorithm.EPSILON_GREEDY_EXPECTED_SARSA:
+        if algorithm == TDAlgorithm.EXPECTED_SARSA:
             q_values = q_table[state]
             q_values = sorted(q_values.items(), key=lambda entry: -entry[1])  # Entry with highest value is first
             q_max, q_max_val = q_values[0]
@@ -97,10 +97,10 @@ class TDAgent(object):
             episode_result = EpisodeResult(env, state)
             new_action = None
             while not done:
-                if algorithm == TDAlgorithm.Q_LEARNING or algorithm == TDAlgorithm.EPSILON_GREEDY_EXPECTED_SARSA:
+                if algorithm == TDAlgorithm.Q_LEARNING or algorithm == TDAlgorithm.EXPECTED_SARSA:
                     action = self._select_action(env, self.q_table, state, selector=ActionSelector.EPSILON_GREEDY,
                                                  epsilon=epsilon)
-                elif algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
+                elif algorithm == TDAlgorithm.SARSA:
                     if new_action is None:
                         action = self._select_action(env, self.q_table, state, selector=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
@@ -118,7 +118,7 @@ class TDAgent(object):
                 episode_result.append(action, reward, new_state)
 
                 new_action = None
-                if algorithm == TDAlgorithm.EPSILON_GREEDY_SARSA:
+                if algorithm == TDAlgorithm.SARSA:
                     new_action = self._select_action(env, self.q_table, new_state,
                                                      selector=ActionSelector.EPSILON_GREEDY,
                                                      epsilon=epsilon)
