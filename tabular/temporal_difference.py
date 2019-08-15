@@ -206,6 +206,49 @@ class TDAgent(object):
                 print("{} iterations done".format(i))
         pass
 
+    def double_q_learning(self, env, num_iterations=1000, gamma=0.99, alpha=0.5, epsilon=0.1, b=None):
+        self.q_table = StateActionValueTable(possible_actions=range(env.action_space.n))
+        self.q_table2 = StateActionValueTable(possible_actions=range(env.action_space.n))
+        self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon)
+
+        if b is not None:
+            behavior_policy = b
+        else:
+            behavior_policy = self.policy
+
+        i = 0
+        while i < num_iterations:
+            state = env.reset()
+            state = str(state)
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            while not done:
+                action = behavior_policy(state)
+                new_state, reward, done, _ = env.step(action)
+                new_state = str(new_state)
+                episode_result.append(action, reward, new_state)
+
+                if np.random.rand() <= 0.5:
+                    a = self.q_table.get_best_action(new_state)
+                    update = reward + gamma * self.q_table2[new_state, a] - self.q_table[state, action]
+                    update *= alpha
+                    self.q_table[state, action] += update
+                else:
+                    a = self.q_table2.get_best_action(new_state)
+                    update = reward + gamma * self.q_table[new_state, a] - self.q_table2[state, action]
+                    update *= alpha
+                    self.q_table2[state, action] += update
+
+                self.policy[state] = self.q_table.get_best_action(state, q2=self.q_table2)
+                state = new_state
+
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+        pass
+
     def learn(self, env, algorithm, num_iterations, policy=None, gamma=0.99, alpha=0.5, epsilon=0.1, b=None):
         if algorithm == TDAlgorithm.SARSA:
             self.tabular_sarsa(env, policy=policy, num_iterations=num_iterations, gamma=gamma, alpha=alpha,
@@ -213,6 +256,8 @@ class TDAgent(object):
         elif algorithm == TDAlgorithm.Q_LEARNING:
             self.q_learning(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, b=b)
         elif algorithm == TDAlgorithm.EXPECTED_SARSA:
+            self.expected_sarsa(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon, b=b)
+        elif algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
             self.expected_sarsa(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon, b=b)
         else:
             raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
@@ -238,7 +283,7 @@ def control():
     policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "FrozenLake-v0"
-    algorithm = TDAlgorithm.EXPECTED_SARSA
+    algorithm = TDAlgorithm.DOUBLE_Q_LEARNING
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -247,7 +292,7 @@ def control():
     goal_returns = env_spec.reward_threshold
     gamma = 0.99
     alpha = 0.5
-    epsilon = 0.1
+    epsilon = 0.5
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
@@ -255,7 +300,7 @@ def control():
     agent = TDAgent()
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
-    num_iterations = 10**4
+    num_iterations = 5 * 10**3
     num_test_episodes = 100
     while True:
         agent.learn(environment, algorithm, num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon)
