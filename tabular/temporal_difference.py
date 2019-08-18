@@ -134,9 +134,9 @@ class TDAgent(object):
                 print("{} iterations done".format(i))
         pass
 
-    def q_learning(self, env, num_iterations=1000, gamma=0.99, alpha=0.5, b=None):
+    def q_learning(self, env, num_iterations=1000, gamma=0.99, alpha=0.5, epsilon=0.1, b=None):
         self.q_table = StateActionValueTable(possible_actions=range(env.action_space.n))
-        self.policy = TabularPolicy()
+        self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon=epsilon)
 
         if b is not None:
             behavior_policy = b
@@ -254,13 +254,13 @@ class TDAgent(object):
             self.tabular_sarsa(env, policy=policy, num_iterations=num_iterations, gamma=gamma, alpha=alpha,
                                epsilon=epsilon)
         elif algorithm == TDAlgorithm.Q_LEARNING:
-            self.q_learning(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, b=b)
+            self.q_learning(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon, b=b)
         elif algorithm == TDAlgorithm.EXPECTED_SARSA:
             self.expected_sarsa(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon, b=b)
         elif algorithm == TDAlgorithm.DOUBLE_Q_LEARNING:
             self.expected_sarsa(env, num_iterations=num_iterations, gamma=gamma, alpha=alpha, epsilon=epsilon, b=b)
         else:
-            raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
+            raise ValueError("Unknown Learn Algorithm: {}".format(algorithm))
 
 
 def prediction():

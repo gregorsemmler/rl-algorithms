@@ -235,6 +235,19 @@ class SampleEnvironmentModel(object):
         self.rewards = collections.defaultdict(float)
         self.transitions = collections.defaultdict(collections.Counter)
         self.states = set()
+        self.actions = None
+        self.start_state = None
+        self.terminal_states = set()
+
+    def random_action(self):
+        return np.random.choice(self.actions)
+
+    def random_state(self):
+        return np.random.choice(len(self.states))
+
+    def random_state_and_action(self):
+        transitions = list(self.transitions.keys())
+        return transitions[np.random.choice(len(transitions))]
 
     def estimate(self, env, b=None, num_iterations=100):
         """
@@ -247,6 +260,8 @@ class SampleEnvironmentModel(object):
         """
         state = env.reset()
         state = str(state)
+        self.actions = range(env.action_space.n)
+        self.start_state = state
         self.states.add(state)
         for _ in range(num_iterations):
             if b is not None:
@@ -258,6 +273,8 @@ class SampleEnvironmentModel(object):
             self.rewards[(state, action, new_state)] = reward
             self.transitions[(state, action)][new_state] += 1
             self.states.add(new_state)
+            if is_done:
+                self.terminal_states.add(new_state)
             state = env.reset() if is_done else new_state
             state = str(state)
 
@@ -272,11 +289,12 @@ class SampleEnvironmentModel(object):
         return self.rewards[(state, action, new_state)]
 
     def sample(self, state, action):
-        other_states, counts = zip(*self.transitions[(state, action)].items())
-        num_transitions = sum(counts)
-        if len(other_states) == 0:
+        curr_trans = self.transitions[(state, action)]
+        if len(curr_trans.keys()) == 0:
             return None
 
+        other_states, counts = zip(*curr_trans.items())
+        num_transitions = sum(counts)
         if num_transitions == 0:
             other_state = other_states[np.random.choice(len(other_states))]
             reward = self.rewards[(state, action, other_state)]
