@@ -6,7 +6,7 @@ import logging
 from tensorboardX import SummaryWriter
 from gym import envs
 
-from core import TabularPolicy, EpisodeResult
+from core import TabularPolicy, EpisodeResult, SampleEnvironmentModel
 
 logger = logging.getLogger(__file__)
 
@@ -16,50 +16,10 @@ class DPAlgorithm(Enum):
     VALUE_ITERATION = "VALUE_ITERATION"
 
 
-class EnvironmentEstimator(object):
-
-    def __init__(self):
-        self.rewards = collections.defaultdict(float)
-        self.transitions = collections.defaultdict(collections.Counter)
-        self.probabilities = collections.defaultdict(float)
-        self.states = set()
-
-    def estimate(self, env, b=None, num_iterations=100):
-        """
-        Performs a number of random actions and estimates the state-action-state probabilities depending on how often
-        they occurred during this time.
-        :param env: The environment to be evaluated
-        :param b: An optional exploration policy to use
-        :param num_iterations: how many steps to perform
-        :return:
-        """
-        state = env.reset()
-        self.states.add(str(state))
-        for _ in range(num_iterations):
-            if b is not None:
-                action = b(str(state))
-            else:
-                action = env.action_space.sample()
-            new_state, reward, is_done, _ = env.step(action)
-            self.rewards[(str(state), action, str(new_state))] = reward
-            self.transitions[(str(state), action)][str(new_state)] += 1
-            self.states.add(str(new_state))
-            state = env.reset() if is_done else new_state
-
-        for s, a in self.transitions.keys():
-            num_transitions = sum(self.transitions[(s, a)].values())
-
-            for s2 in self.transitions[(s, a)].keys():
-                if num_transitions == 0:
-                    self.probabilities[(s, a, s2)] = 0.0
-                else:
-                    self.probabilities[(s, a, s2)] = self.transitions[(s, a)][s2] / num_transitions
-
-
 class DPAgent(object):
 
     def __init__(self):
-        self.estimator = EnvironmentEstimator()
+        self.model = SampleEnvironmentModel()
         self.policy = None
         self.v_table = None
 
@@ -78,9 +38,9 @@ class DPAgent(object):
         else:
             self.v_table = v
 
-        self.estimator.estimate(env, b=b, num_iterations=num_exploration_steps)
+        self.model.estimate(env, b=b, num_iterations=num_exploration_steps)
 
-        all_states = sorted(self.estimator.states)
+        all_states = sorted(self.model.states)
 
         policy_stable = False
         i = 0
@@ -92,8 +52,8 @@ class DPAgent(object):
                 for s in all_states:
                     old_val = self.v_table[s]
                     action = self.policy(s)
-                    new_val = sum([self.estimator.probabilities[(s, action, s2)] * (
-                            self.estimator.rewards[(s, action, s2)] + gamma * self.v_table[s2]) for s2 in
+                    new_val = sum([self.model.probabilities[(s, action, s2)] * (
+                            self.model.rewards[(s, action, s2)] + gamma * self.v_table[s2]) for s2 in
                                    all_states])
                     self.v_table[s] = new_val
                     delta = max(delta, abs(old_val - new_val))
@@ -106,11 +66,11 @@ class DPAgent(object):
 
                 best_action = None
                 best_value = float("-inf")
-                for _, a in [(st, ac) for (st, ac) in self.estimator.transitions.keys() if st == s]:
+                for _, a in [(st, ac) for (st, ac) in self.model.transitions.keys() if st == s]:
                     cur_val = 0.0
-                    for s2 in self.estimator.transitions[(s, a)].keys():
-                        cur_val += self.estimator.probabilities[(s, a, s2)] * (
-                                self.estimator.rewards[(s, a, s2)] + gamma * self.v_table[s2])
+                    for s2 in self.model.transitions[(s, a)].keys():
+                        cur_val += self.model.probabilities[(s, a, s2)] * (
+                                self.model.rewards[(s, a, s2)] + gamma * self.v_table[s2])
 
                     if cur_val > best_value:
                         best_value = cur_val
@@ -141,8 +101,8 @@ class DPAgent(object):
         else:
             self.v_table = v
 
-        self.estimator.estimate(env, b=b, num_iterations=num_exploration_steps)
-        all_states = sorted(self.estimator.states)
+        self.model.estimate(env, b=b, num_iterations=num_exploration_steps)
+        all_states = sorted(self.model.states)
 
         # Policy evaluation
         delta = float("inf")
@@ -151,8 +111,8 @@ class DPAgent(object):
             for s in all_states:
                 old_val = self.v_table[s]
                 action = self.policy(s)
-                new_val = sum([self.estimator.probabilities[(s, action, s2)] * (
-                        self.estimator.rewards[(s, action, s2)] + gamma * self.v_table[s2]) for s2 in
+                new_val = sum([self.model.probabilities[(s, action, s2)] * (
+                        self.model.rewards[(s, action, s2)] + gamma * self.v_table[s2]) for s2 in
                                all_states])
                 self.v_table[s] = new_val
                 delta = max(delta, abs(old_val - new_val))
@@ -160,11 +120,11 @@ class DPAgent(object):
         for s in all_states:
             best_action = None
             best_value = float("-inf")
-            for _, a in [(st, ac) for (st, ac) in self.estimator.transitions.keys() if st == s]:
+            for _, a in [(st, ac) for (st, ac) in self.model.transitions.keys() if st == s]:
                 cur_val = 0.0
-                for s2 in self.estimator.transitions[(s, a)].keys():
-                    cur_val += self.estimator.probabilities[(s, a, s2)] * (
-                            self.estimator.rewards[(s, a, s2)] + gamma * self.v_table[s2])
+                for s2 in self.model.transitions[(s, a)].keys():
+                    cur_val += self.model.probabilities[(s, a, s2)] * (
+                            self.model.rewards[(s, a, s2)] + gamma * self.v_table[s2])
 
                 if cur_val > best_value:
                     best_value = cur_val

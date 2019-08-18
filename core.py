@@ -229,3 +229,45 @@ def simple_blackjack_probability(action, state, limit=11):
     return 0.0
 
 
+class SampleEnvironmentModel(object):
+
+    def __init__(self):
+        self.rewards = collections.defaultdict(float)
+        self.transitions = collections.defaultdict(collections.Counter)
+        self.probabilities = collections.defaultdict(float)
+        self.states = set()
+
+    def estimate(self, env, b=None, num_iterations=100):
+        """
+        Performs a number of random actions and estimates the state-action-state probabilities depending on how often
+        they occurred during this time.
+        :param env: The environment to be evaluated
+        :param b: An optional exploration policy to use
+        :param num_iterations: how many steps to perform
+        :return:
+        """
+        state = env.reset()
+        self.states.add(str(state))
+        for _ in range(num_iterations):
+            if b is not None:
+                action = b(str(state))
+            else:
+                action = env.action_space.sample()
+            new_state, reward, is_done, _ = env.step(action)
+            self.rewards[(str(state), action, str(new_state))] = reward
+            self.transitions[(str(state), action)][str(new_state)] += 1
+            self.states.add(str(new_state))
+            state = env.reset() if is_done else new_state
+
+        for s, a in self.transitions.keys():
+            num_transitions = sum(self.transitions[(s, a)].values())
+
+            for s2 in self.transitions[(s, a)].keys():
+                if num_transitions == 0:
+                    self.probabilities[(s, a, s2)] = 0.0
+                else:
+                    self.probabilities[(s, a, s2)] = self.transitions[(s, a)][s2] / num_transitions
+
+
+    def sample(self, state, action):
+        pass
