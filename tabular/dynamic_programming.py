@@ -6,7 +6,7 @@ import logging
 from tensorboardX import SummaryWriter
 from gym import envs
 
-from core import TabularPolicy, EpisodeResult, SampleEnvironmentModel
+from core import TabularPolicy, EpisodeResult, SampleEnvironmentModel, EpsilonGreedyTabularPolicy
 
 logger = logging.getLogger(__file__)
 
@@ -52,9 +52,8 @@ class DPAgent(object):
                 for s in all_states:
                     old_val = self.v_table[s]
                     action = self.policy(s)
-                    new_val = sum([self.model.probabilities[(s, action, s2)] * (
-                            self.model.rewards[(s, action, s2)] + gamma * self.v_table[s2]) for s2 in
-                                   all_states])
+                    new_val = sum([self.model.get_probability(s, action, s2) * (
+                            self.model.get_reward(s, action, s2) + gamma * self.v_table[s2]) for s2 in all_states])
                     self.v_table[s] = new_val
                     delta = max(delta, abs(old_val - new_val))
 
@@ -69,8 +68,8 @@ class DPAgent(object):
                 for _, a in [(st, ac) for (st, ac) in self.model.transitions.keys() if st == s]:
                     cur_val = 0.0
                     for s2 in self.model.transitions[(s, a)].keys():
-                        cur_val += self.model.probabilities[(s, a, s2)] * (
-                                self.model.rewards[(s, a, s2)] + gamma * self.v_table[s2])
+                        cur_val += self.model.get_probability(s, a, s2) * (
+                                    self.model.get_reward(s, a, s2) + gamma * self.v_table[s2])
 
                     if cur_val > best_value:
                         best_value = cur_val
@@ -111,9 +110,8 @@ class DPAgent(object):
             for s in all_states:
                 old_val = self.v_table[s]
                 action = self.policy(s)
-                new_val = sum([self.model.probabilities[(s, action, s2)] * (
-                        self.model.rewards[(s, action, s2)] + gamma * self.v_table[s2]) for s2 in
-                               all_states])
+                new_val = sum([self.model.get_probability(s, action, s2) * (
+                            self.model.get_reward(s, action, s2) + gamma * self.v_table[s2]) for s2 in all_states])
                 self.v_table[s] = new_val
                 delta = max(delta, abs(old_val - new_val))
 
@@ -123,8 +121,8 @@ class DPAgent(object):
             for _, a in [(st, ac) for (st, ac) in self.model.transitions.keys() if st == s]:
                 cur_val = 0.0
                 for s2 in self.model.transitions[(s, a)].keys():
-                    cur_val += self.model.probabilities[(s, a, s2)] * (
-                            self.model.rewards[(s, a, s2)] + gamma * self.v_table[s2])
+                    cur_val += self.model.get_probability(s, a, s2) * (
+                                self.model.get_reward(s, a, s2) + gamma * self.v_table[s2])
 
                 if cur_val > best_value:
                     best_value = cur_val
@@ -205,7 +203,7 @@ def prediction():
 
 
 def control():
-    policy = TabularPolicy.sample_frozen_lake_policy()
+    estimation_policy = EpsilonGreedyTabularPolicy.sample_frozen_lake_policy(0.1)
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "FrozenLake-v0"
     algorithm = DPAlgorithm.POLICY_ITERATION
@@ -226,7 +224,7 @@ def control():
     num_iterations = 1000
     num_test_episodes = 100
     while True:
-        agent.learn(environment, policy, algorithm, b=policy, gamma=gamma, num_iterations=num_iterations)
+        agent.learn(environment, estimation_policy, algorithm, b=estimation_policy, gamma=gamma, num_iterations=num_iterations)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):

@@ -234,7 +234,6 @@ class SampleEnvironmentModel(object):
     def __init__(self):
         self.rewards = collections.defaultdict(float)
         self.transitions = collections.defaultdict(collections.Counter)
-        self.probabilities = collections.defaultdict(float)
         self.states = set()
 
     def estimate(self, env, b=None, num_iterations=100):
@@ -247,27 +246,45 @@ class SampleEnvironmentModel(object):
         :return:
         """
         state = env.reset()
-        self.states.add(str(state))
+        state = str(state)
+        self.states.add(state)
         for _ in range(num_iterations):
             if b is not None:
-                action = b(str(state))
+                action = b(state)
             else:
                 action = env.action_space.sample()
             new_state, reward, is_done, _ = env.step(action)
-            self.rewards[(str(state), action, str(new_state))] = reward
-            self.transitions[(str(state), action)][str(new_state)] += 1
-            self.states.add(str(new_state))
+            new_state = str(new_state)
+            self.rewards[(state, action, new_state)] = reward
+            self.transitions[(state, action)][new_state] += 1
+            self.states.add(new_state)
             state = env.reset() if is_done else new_state
+            state = str(state)
 
-        for s, a in self.transitions.keys():
-            num_transitions = sum(self.transitions[(s, a)].values())
+    def get_probability(self, state, action, new_state):
+        curr_trans = self.transitions[(state, action)]
+        num_transitions = sum(curr_trans.values())
+        if num_transitions == 0 or new_state not in curr_trans:
+            return 0.0
+        return curr_trans[new_state] / num_transitions
 
-            for s2 in self.transitions[(s, a)].keys():
-                if num_transitions == 0:
-                    self.probabilities[(s, a, s2)] = 0.0
-                else:
-                    self.probabilities[(s, a, s2)] = self.transitions[(s, a)][s2] / num_transitions
-
+    def get_reward(self, state, action, new_state):
+        return self.rewards[(state, action, new_state)]
 
     def sample(self, state, action):
-        pass
+        other_states, counts = zip(*self.transitions[(state, action)].items())
+        num_transitions = sum(counts)
+        if len(other_states) == 0:
+            return None
+
+        if num_transitions == 0:
+            other_state = other_states[np.random.choice(len(other_states))]
+            reward = self.rewards[(state, action, other_state)]
+            return reward, other_state
+
+        probs = np.array(counts) / num_transitions
+        idx = np.random.choice(len(other_states), p=probs)
+
+        other_state = other_states[idx]
+        reward = self.rewards[(state, action, other_state)]
+        return other_state, reward
