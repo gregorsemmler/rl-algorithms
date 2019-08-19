@@ -156,7 +156,7 @@ class TDAgent(object):
                 new_state = str(new_state)
                 episode_result.append(action, reward, new_state)
 
-                update = reward + gamma * self.q_table.get_q_max(state) - self.q_table[state, action]
+                update = reward + gamma * self.q_table.get_q_max(new_state) - self.q_table[state, action]
                 update *= alpha
                 self.q_table[state, action] += update
                 self.policy[state] = self.q_table.get_best_action(state)
@@ -282,7 +282,7 @@ def prediction():
 def control():
     policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
+    env_name = "Taxi-v2"
     algorithm = TDAlgorithm.DOUBLE_Q_LEARNING
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
@@ -292,7 +292,7 @@ def control():
     goal_returns = env_spec.reward_threshold
     gamma = 0.99
     alpha = 0.5
-    epsilon = 0.5
+    epsilon = 0.01
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
