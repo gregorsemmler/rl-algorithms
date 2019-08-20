@@ -249,12 +249,12 @@ class SampleEnvironmentModel(object):
         transitions = list(self.transitions.keys())
         return transitions[np.random.choice(len(transitions))]
 
-    def estimate(self, env, b=None, num_iterations=100):
+    def estimate(self, env, exp_policy=None, num_iterations=100):
         """
         Performs a number of random actions and estimates the state-action-state probabilities depending on how often
         they occurred during this time.
         :param env: The environment to be evaluated
-        :param b: An optional exploration policy to use
+        :param exp_policy: An optional exploration policy to use
         :param num_iterations: how many steps to perform
         :return:
         """
@@ -264,17 +264,13 @@ class SampleEnvironmentModel(object):
         self.start_state = state
         self.states.add(state)
         for _ in range(num_iterations):
-            if b is not None:
-                action = b(state)
+            if exp_policy is not None:
+                action = exp_policy(state)
             else:
                 action = env.action_space.sample()
             new_state, reward, is_done, _ = env.step(action)
             new_state = str(new_state)
-            self.rewards[(state, action, new_state)] = reward
-            self.transitions[(state, action)][new_state] += 1
-            self.states.add(new_state)
-            if is_done:
-                self.terminal_states.add(new_state)
+            self.append(state, action, new_state, reward, is_done)
             state = env.reset() if is_done else new_state
             state = str(state)
 
@@ -306,3 +302,10 @@ class SampleEnvironmentModel(object):
         other_state = other_states[idx]
         reward = self.rewards[(state, action, other_state)]
         return other_state, reward
+
+    def append(self, state, action, new_state, reward, done=False):
+        self.rewards[(state, action, new_state)] = reward
+        self.transitions[(state, action)][new_state] += 1
+        self.states.add(new_state)
+        if done:
+            self.terminal_states.add(new_state)

@@ -38,7 +38,7 @@ class DPAgent(object):
         else:
             self.v_table = v
 
-        self.model.estimate(env, b=b, num_iterations=num_exploration_steps)
+        self.model.estimate(env, exp_policy=b, num_iterations=num_exploration_steps)
 
         all_states = sorted(self.model.states)
 
@@ -100,7 +100,7 @@ class DPAgent(object):
         else:
             self.v_table = v
 
-        self.model.estimate(env, b=b, num_iterations=num_exploration_steps)
+        self.model.estimate(env, exp_policy=b, num_iterations=num_exploration_steps)
         all_states = sorted(self.model.states)
 
         # Policy evaluation
