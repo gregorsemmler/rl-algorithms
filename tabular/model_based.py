@@ -4,7 +4,7 @@ from enum import Enum
 import gym
 import numpy as np
 import re
-from math import inf
+from math import inf, sqrt
 import logging
 from tensorboardX import SummaryWriter
 from gym import envs
@@ -17,6 +17,7 @@ logger = logging.getLogger(__file__)
 class TabularModelAlgorithm(Enum):
     RANDOM_ONE_STEP_Q_PLANNING = "RANDOM_ONE_STEP_Q_PLANNING"
     TABULAR_DYNA_Q = "TABULAR_DYNA_Q"
+    TABULAR_DYNA_Q_PLUS = "TABULAR_DYNA_Q_PLUS"
 
 
 class TabularModelAgent(object):
@@ -53,7 +54,7 @@ class TabularModelAgent(object):
         pass
 
     def tabular_dyna_q(self, env, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
-                       exp_policy=None, samples_per_step=3, b=None):
+                       exp_policy=None, samples_per_step=3, b=None, dyna_q_plus=False, kappa=0.5):
         self.q_table = StateActionValueTable(possible_actions=range(env.action_space.n))
         self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon=epsilon)
 
@@ -66,11 +67,14 @@ class TabularModelAgent(object):
 
         i = 0
         while i < num_iterations:
+
+            last_sampled = {}
             state = env.reset()
             state = str(state)
             done = False
             episode_result = EpisodeResult(env, state)
 
+            episode_t = 0
             while not done:
                 action = behavior_policy(state)
                 new_state, reward, done, _ = env.step(action)
@@ -94,25 +98,38 @@ class TabularModelAgent(object):
                         sampled = self.model.sample(s_state, s_action)
 
                     s_new_state, s_reward = sampled
+                    if sampled not in last_sampled:
+                        last_sampled[sampled] = 0
 
-                    update = s_reward + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[s_state, s_action]
+                    if dyna_q_plus:
+                        reward_bonus = kappa * sqrt(max(0, episode_t - last_sampled[sampled]))
+                    else:
+                        reward_bonus = 0.0
+                    update = s_reward + reward_bonus + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[s_state, s_action]
                     update *= alpha
                     self.q_table[s_state, s_action] += update
                     self.policy[s_state] = self.q_table.get_best_action(s_state)
                     s_state = s_new_state
 
+                    last_sampled[sampled] = episode_t
+
                     j += 1
+                episode_t += 1
             i += 1
 
     def learn(self, env, algorithm, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
-              exp_policy=None, samples_per_step=3, b=None):
+              exp_policy=None, samples_per_step=3, b=None, kappa=0.5):
         if algorithm == TabularModelAlgorithm.RANDOM_ONE_STEP_Q_PLANNING:
             self.one_step_q_planning(env, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
                                      alpha=alpha, epsilon=epsilon, exp_policy=exp_policy)
         elif algorithm == TabularModelAlgorithm.TABULAR_DYNA_Q:
             self.tabular_dyna_q(env, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
                                 alpha=alpha, epsilon=epsilon, exp_policy=exp_policy, samples_per_step=samples_per_step,
-                                b=None)
+                                b=b)
+        elif algorithm == TabularModelAlgorithm.TABULAR_DYNA_Q_PLUS:
+            self.tabular_dyna_q(env, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
+                                alpha=alpha, epsilon=epsilon, exp_policy=exp_policy, samples_per_step=samples_per_step,
+                                b=b, dyna_q_plus=True, kappa=kappa)
         else:
             raise ValueError("Unknown Learn Algorithm: {}".format(algorithm))
 
@@ -154,8 +171,8 @@ class TabularModelAgent(object):
 def control():
     policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
-    algorithm = TabularModelAlgorithm.TABULAR_DYNA_Q
+    env_name = "Taxi-v2"
+    algorithm = TabularModelAlgorithm.TABULAR_DYNA_Q_PLUS
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -175,13 +192,14 @@ def control():
 
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
-    num_iterations = 2000
+    num_iterations = 100
     num_exploration_steps = 2000
     num_test_episodes = 100
-    samples_per_step = 3
+    samples_per_step = 10
+    kappa = 0.001
     while True:
         agent.learn(environment, algorithm, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
-                    alpha=alpha, epsilon=epsilon, samples_per_step=samples_per_step)
+                    alpha=alpha, epsilon=epsilon, samples_per_step=samples_per_step, kappa=kappa)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
