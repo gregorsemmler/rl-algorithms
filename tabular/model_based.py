@@ -3,7 +3,7 @@ from enum import Enum
 
 import gym
 import numpy as np
-import re
+import queue
 from math import inf, sqrt
 import logging
 from tensorboardX import SummaryWriter
@@ -116,6 +116,68 @@ class TabularModelAgent(object):
                     j += 1
                 episode_t += 1
             i += 1
+
+    def prioritized_sweeping(self, env, algorithm, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
+              exp_policy=None, samples_per_step=3, theta=0.5):
+        self.q_table = StateActionValueTable(possible_actions=range(env.action_space.n))
+        self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon=epsilon)
+
+        self.model.estimate(env, exp_policy=exp_policy, num_iterations=num_exploration_steps)
+
+        # TODO
+        pq = queue.PriorityQueue()
+        i = 0
+        while i < num_iterations:
+
+            last_sampled = {}
+            state = env.reset()
+            state = str(state)
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            while not done:
+                action = self.policy(state)
+                new_state, reward, done, _ = env.step(action)
+                new_state = str(new_state)
+                episode_result.append(action, reward, new_state)
+                self.model.append(state, action, new_state, reward, done)
+
+                p = reward + gamma * self.q_table.get_q_max(new_state) - self.q_table[state, action]
+                p *= alpha
+                p = abs(p)
+
+                if p > theta:
+                    pq.put((-p, (state, action)))
+
+                while not pq.empty():
+                    pass
+
+                self.q_table[state, action] += p
+                self.policy[state] = self.q_table.get_best_action(state)
+                state = new_state
+
+                j = 0
+
+                while j < samples_per_step:
+                    sampled = None
+
+                    while sampled is None:
+                        s_state, s_action = self.model.random_state_and_action()
+                        sampled = self.model.sample(s_state, s_action)
+
+                    s_new_state, s_reward = sampled
+                    if sampled not in last_sampled:
+                        last_sampled[sampled] = 0
+
+                    p = s_reward + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[s_state, s_action]
+                    p *= alpha
+                    self.q_table[s_state, s_action] += p
+                    self.policy[s_state] = self.q_table.get_best_action(s_state)
+                    s_state = s_new_state
+
+                    j += 1
+            i += 1
+        pass
 
     def learn(self, env, algorithm, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
               exp_policy=None, samples_per_step=3, b=None, kappa=0.5):
