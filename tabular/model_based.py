@@ -9,7 +9,7 @@ import logging
 from tensorboardX import SummaryWriter
 from gym import envs
 
-from core import SampleEnvironmentModel, TabularPolicy, StateActionValueTable, EpsilonGreedyTabularPolicy, EpisodeResult
+from core import EnvironmentModel, TabularPolicy, StateActionValueTable, EpsilonGreedyTabularPolicy, EpisodeResult
 
 logger = logging.getLogger(__file__)
 
@@ -22,7 +22,7 @@ class TabularModelAlgorithm(Enum):
 
 class TabularModelAgent(object):
 
-    def __init__(self, model: SampleEnvironmentModel):
+    def __init__(self, model: EnvironmentModel):
         self.model = model
         self.q_table = None
         self.policy = None
@@ -249,7 +249,7 @@ def control():
 
     max_rounds = 1000
 
-    model = SampleEnvironmentModel()
+    model = EnvironmentModel()
     agent = TabularModelAgent(model)
 
     test_best_result, test_best_return = None, float("-inf")

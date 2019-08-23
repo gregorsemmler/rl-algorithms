@@ -229,15 +229,24 @@ def simple_blackjack_probability(action, state, limit=11):
     return 0.0
 
 
-class SampleEnvironmentModel(object):
+class EnvironmentNode(object):
+
+    def __init__(self, id):
+        self.id = id
+        self.parents = set()
+        self.children = set()
+
+
+class EnvironmentModel(object):
 
     def __init__(self):
         self.rewards = collections.defaultdict(float)
         self.transitions = collections.defaultdict(collections.Counter)
         self.states = set()
         self.actions = None
-        self.start_state = None
+        self.start_states = set()
         self.terminal_states = set()
+        self.nodes = {}
 
     def random_action(self):
         return np.random.choice(self.actions)
@@ -261,7 +270,7 @@ class SampleEnvironmentModel(object):
         state = env.reset()
         state = str(state)
         self.actions = range(env.action_space.n)
-        self.start_state = state
+        self.start_states.add(state)
         self.states.add(state)
         for _ in range(num_iterations):
             if exp_policy is not None:
@@ -273,6 +282,8 @@ class SampleEnvironmentModel(object):
             self.append(state, action, new_state, reward, is_done)
             state = env.reset() if is_done else new_state
             state = str(state)
+            if is_done:
+                self.start_states.add(state)
 
     def get_probability(self, state, action, new_state):
         curr_trans = self.transitions[(state, action)]
@@ -307,5 +318,17 @@ class SampleEnvironmentModel(object):
         self.rewards[(state, action, new_state)] = reward
         self.transitions[(state, action)][new_state] += 1
         self.states.add(new_state)
+
+        if state not in self.nodes.keys():
+            self.nodes[state] = EnvironmentNode(state)
+
+        if new_state not in self.nodes.keys():
+            self.nodes[new_state] = EnvironmentNode(new_state)
+
+        self.nodes[state].children.add(new_state)
+        self.nodes[new_state].parents.add(state)
+
         if done:
             self.terminal_states.add(new_state)
+
+

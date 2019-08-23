@@ -6,7 +6,7 @@ import logging
 from tensorboardX import SummaryWriter
 from gym import envs
 
-from core import TabularPolicy, EpisodeResult, SampleEnvironmentModel, EpsilonGreedyTabularPolicy
+from core import TabularPolicy, EpisodeResult, EnvironmentModel, EpsilonGreedyTabularPolicy
 
 logger = logging.getLogger(__file__)
 
@@ -19,7 +19,7 @@ class DPAlgorithm(Enum):
 class DPAgent(object):
 
     def __init__(self):
-        self.model = SampleEnvironmentModel()
+        self.model = EnvironmentModel()
         self.policy = None
         self.v_table = None
 
