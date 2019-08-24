@@ -235,6 +235,22 @@ class EnvironmentNode(object):
         self.id = id
         self.parents = set()
         self.children = set()
+        self.out_edges = set()
+        self.in_edges = set()
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}: {self.id}"
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def add_child(self, action, new_state):
+        self.children.add(new_state)
+        self.out_edges.add((action, new_state))
+
+    def add_parent(self, state, action):
+        self.parents.add(state)
+        self.in_edges.add((state, action))
 
 
 class EnvironmentModel(object):
@@ -242,17 +258,13 @@ class EnvironmentModel(object):
     def __init__(self):
         self.rewards = collections.defaultdict(float)
         self.transitions = collections.defaultdict(collections.Counter)
-        self.states = set()
         self.actions = None
         self.start_states = set()
         self.terminal_states = set()
         self.nodes = {}
 
-    def random_action(self):
-        return np.random.choice(self.actions)
-
-    def random_state(self):
-        return np.random.choice(len(self.states))
+    def get_states(self):
+        return set(self.nodes.keys())
 
     def random_state_and_action(self):
         transitions = list(self.transitions.keys())
@@ -271,7 +283,6 @@ class EnvironmentModel(object):
         state = str(state)
         self.actions = range(env.action_space.n)
         self.start_states.add(state)
-        self.states.add(state)
         for _ in range(num_iterations):
             if exp_policy is not None:
                 action = exp_policy(state)
@@ -317,7 +328,6 @@ class EnvironmentModel(object):
     def append(self, state, action, new_state, reward, done=False):
         self.rewards[(state, action, new_state)] = reward
         self.transitions[(state, action)][new_state] += 1
-        self.states.add(new_state)
 
         if state not in self.nodes.keys():
             self.nodes[state] = EnvironmentNode(state)
@@ -325,8 +335,11 @@ class EnvironmentModel(object):
         if new_state not in self.nodes.keys():
             self.nodes[new_state] = EnvironmentNode(new_state)
 
-        self.nodes[state].children.add(new_state)
-        self.nodes[new_state].parents.add(state)
+        node = self.nodes[state]
+        new_node = self.nodes[new_state]
+
+        node.add_child(action, new_state)
+        new_node.add_parent(state, action)
 
         if done:
             self.terminal_states.add(new_state)

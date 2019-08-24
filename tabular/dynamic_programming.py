@@ -40,7 +40,7 @@ class DPAgent(object):
 
         self.model.estimate(env, exp_policy=b, num_iterations=num_exploration_steps)
 
-        all_states = sorted(self.model.states)
+        all_states = sorted(self.model.get_states())
 
         policy_stable = False
         i = 0
@@ -101,7 +101,7 @@ class DPAgent(object):
             self.v_table = v
 
         self.model.estimate(env, exp_policy=b, num_iterations=num_exploration_steps)
-        all_states = sorted(self.model.states)
+        all_states = sorted(self.model.get_states())
 
         # Policy evaluation
         delta = float("inf")

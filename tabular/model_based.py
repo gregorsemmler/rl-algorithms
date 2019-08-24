@@ -11,6 +11,7 @@ from gym import envs
 
 from core import EnvironmentModel, TabularPolicy, StateActionValueTable, EpsilonGreedyTabularPolicy, EpisodeResult
 
+
 logger = logging.getLogger(__file__)
 
 
@@ -126,6 +127,7 @@ class TabularModelAgent(object):
 
         # TODO
         pq = queue.PriorityQueue()
+        num_pq_updates = 5
         i = 0
         while i < num_iterations:
 
@@ -149,7 +151,21 @@ class TabularModelAgent(object):
                 if p > theta:
                     pq.put((-p, (state, action)))
 
-                while not pq.empty():
+                k = 0
+                while not pq.empty() and k < num_pq_updates:
+                    _, (s_state, s_action) = pq.get()
+
+                    s_new_state, s_reward = self.model.sample(s_state, s_action)
+
+                    update = s_reward + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[s_state, s_action]
+                    update *= alpha
+                    self.q_table[s_state, s_action] += update
+
+
+
+                    pass
+
+                    k += 1
                     pass
 
                 self.q_table[state, action] += p
@@ -233,7 +249,7 @@ class TabularModelAgent(object):
 def control():
     policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "Taxi-v2"
+    env_name = "FrozenLake-v0"
     algorithm = TabularModelAlgorithm.TABULAR_DYNA_Q_PLUS
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
