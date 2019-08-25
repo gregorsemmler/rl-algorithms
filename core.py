@@ -266,6 +266,9 @@ class EnvironmentModel(object):
     def get_states(self):
         return set(self.nodes.keys())
 
+    def get_node(self, state):
+        return self.nodes[state]
+
     def random_state_and_action(self):
         transitions = list(self.transitions.keys())
         return transitions[np.random.choice(len(transitions))]

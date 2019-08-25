@@ -19,6 +19,7 @@ class TabularModelAlgorithm(Enum):
     RANDOM_ONE_STEP_Q_PLANNING = "RANDOM_ONE_STEP_Q_PLANNING"
     TABULAR_DYNA_Q = "TABULAR_DYNA_Q"
     TABULAR_DYNA_Q_PLUS = "TABULAR_DYNA_Q_PLUS"
+    PRIORITIZED_SWEEPING = "PRIORITIZED_SWEEPING"
 
 
 class TabularModelAgent(object):
@@ -118,20 +119,16 @@ class TabularModelAgent(object):
                 episode_t += 1
             i += 1
 
-    def prioritized_sweeping(self, env, algorithm, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
-              exp_policy=None, samples_per_step=3, theta=0.5):
+    def prioritized_sweeping(self, env, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
+              exp_policy=None, num_pq_updates=5, theta=0.5):
         self.q_table = StateActionValueTable(possible_actions=range(env.action_space.n))
         self.policy = EpsilonGreedyTabularPolicy(env.action_space.n, epsilon=epsilon)
 
         self.model.estimate(env, exp_policy=exp_policy, num_iterations=num_exploration_steps)
 
-        # TODO
         pq = queue.PriorityQueue()
-        num_pq_updates = 5
         i = 0
         while i < num_iterations:
-
-            last_sampled = {}
             state = env.reset()
             state = str(state)
             done = False
@@ -144,59 +141,43 @@ class TabularModelAgent(object):
                 episode_result.append(action, reward, new_state)
                 self.model.append(state, action, new_state, reward, done)
 
-                p = reward + gamma * self.q_table.get_q_max(new_state) - self.q_table[state, action]
-                p *= alpha
-                p = abs(p)
+                p = abs(reward + gamma * self.q_table.get_q_max(new_state) - self.q_table[state, action])
 
                 if p > theta:
                     pq.put((-p, (state, action)))
 
                 k = 0
+                did_sample = False
                 while not pq.empty() and k < num_pq_updates:
-                    _, (s_state, s_action) = pq.get()
+                    _, (state, action) = pq.get()
+                    did_sample = True
 
-                    s_new_state, s_reward = self.model.sample(s_state, s_action)
+                    s_new_state, s_reward = self.model.sample(state, action)
 
-                    update = s_reward + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[s_state, s_action]
+                    update = s_reward + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[state, action]
                     update *= alpha
-                    self.q_table[s_state, s_action] += update
+                    self.q_table[state, action] += update
+                    self.policy[state] = self.q_table.get_best_action(state)
 
+                    s_node = self.model.get_node(state)
 
+                    # Loop through all states and actions predicted to lead to state
+                    for s_in_state, s_in_action in s_node.in_edges:
+                        s_in_reward = self.model.get_reward(s_in_state, s_in_action, state)
 
-                    pass
+                        p = abs(s_in_reward + gamma * self.q_table.get_q_max(state) - self.q_table[s_in_state, s_in_action])
 
+                        if p > theta:
+                            pq.put((-p, (s_in_state, s_in_action)))
                     k += 1
-                    pass
 
-                self.q_table[state, action] += p
-                self.policy[state] = self.q_table.get_best_action(state)
-                state = new_state
-
-                j = 0
-
-                while j < samples_per_step:
-                    sampled = None
-
-                    while sampled is None:
-                        s_state, s_action = self.model.random_state_and_action()
-                        sampled = self.model.sample(s_state, s_action)
-
-                    s_new_state, s_reward = sampled
-                    if sampled not in last_sampled:
-                        last_sampled[sampled] = 0
-
-                    p = s_reward + gamma * self.q_table.get_q_max(s_new_state) - self.q_table[s_state, s_action]
-                    p *= alpha
-                    self.q_table[s_state, s_action] += p
-                    self.policy[s_state] = self.q_table.get_best_action(s_state)
-                    s_state = s_new_state
-
-                    j += 1
+                if not did_sample:
+                    state = new_state
             i += 1
         pass
 
     def learn(self, env, algorithm, num_iterations, num_exploration_steps=1000, gamma=0.99, alpha=0.5, epsilon=0.1,
-              exp_policy=None, samples_per_step=3, b=None, kappa=0.5):
+              exp_policy=None, samples_per_step=3, num_pq_updates=5, b=None, kappa=0.5, theta=0.01):
         if algorithm == TabularModelAlgorithm.RANDOM_ONE_STEP_Q_PLANNING:
             self.one_step_q_planning(env, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
                                      alpha=alpha, epsilon=epsilon, exp_policy=exp_policy)
@@ -208,6 +189,9 @@ class TabularModelAgent(object):
             self.tabular_dyna_q(env, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
                                 alpha=alpha, epsilon=epsilon, exp_policy=exp_policy, samples_per_step=samples_per_step,
                                 b=b, dyna_q_plus=True, kappa=kappa)
+        elif algorithm == TabularModelAlgorithm.PRIORITIZED_SWEEPING:
+            self.prioritized_sweeping(env, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma, alpha=alpha,
+                                      epsilon=epsilon, exp_policy=exp_policy, num_pq_updates=num_pq_updates, theta=theta)
         else:
             raise ValueError("Unknown Learn Algorithm: {}".format(algorithm))
 
@@ -247,10 +231,9 @@ class TabularModelAgent(object):
 
 
 def control():
-    policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
-    algorithm = TabularModelAlgorithm.TABULAR_DYNA_Q_PLUS
+    env_name = "Taxi-v2"
+    algorithm = TabularModelAlgorithm.PRIORITIZED_SWEEPING
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -270,14 +253,15 @@ def control():
 
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
-    num_iterations = 100
+    num_iterations = 10
     num_exploration_steps = 2000
-    num_test_episodes = 100
+    num_test_episodes = 10
     samples_per_step = 10
+    num_pq_updates = 100
     kappa = 0.001
     while True:
         agent.learn(environment, algorithm, num_iterations, num_exploration_steps=num_exploration_steps, gamma=gamma,
-                    alpha=alpha, epsilon=epsilon, samples_per_step=samples_per_step, kappa=kappa)
+                    alpha=alpha, epsilon=epsilon, samples_per_step=samples_per_step, kappa=kappa, num_pq_updates=num_pq_updates)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
