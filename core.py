@@ -1,6 +1,8 @@
 import json
 import numpy as np
 import collections
+import torch
+from torch import nn, optim
 
 
 class StateActionValueTable(object):
@@ -71,6 +73,66 @@ class StateActionValueTable(object):
         self.q = content["q"]
         self.default_value = content["default_value"]
         self.possible_actions = content["possible_actions"]
+
+
+class ApproximateValueFunction():
+
+    def __init__(self, n_states, learning_rate):
+        super().__init__()
+        self.input_size = n_states
+        self.hidden_size = self.input_size
+        self.model = nn.Sequential(
+            nn.Linear(self.input_size, self.hidden_size),
+            nn.ReLU(inplace=True),
+            nn.Linear(self.hidden_size, 1))
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.criterion = nn.MSELoss()
+        self.x_batches = []
+        self.y_batches = []
+
+    def __call__(self, state):
+        input = self.state_to_network_input(state)
+        output = self.model(input)
+        return float(output.detach().cpu().numpy())
+
+    def state_to_network_input(self, state, dtype="torch.FloatTensor"):
+        int_state = int(state)
+        one_hot_encoded = np.zeros((1, self.input_size))
+        one_hot_encoded[0, int_state] = 1
+        return torch.from_numpy(one_hot_encoded).type(dtype)
+
+    def append_x_y_pair(self, state, y):
+        self.x_batches.append(self.state_to_network_input(state))
+        self.y_batches.append(torch.FloatTensor([[y]]))
+
+    def shuffle_batches(self):
+        permutation = np.random.permutation(len(self.x_batches))
+        self.x_batches = [self.x_batches[i] for i in permutation]
+        self.y_batches = [self.y_batches[i] for i in permutation]
+
+    def training(self, batch_size):
+        self.model.train()
+        losses = []
+
+        while len(self.x_batches) > 0:
+            x_batch = self.x_batches[:batch_size]
+            y_batch = self.y_batches[:batch_size]
+
+            self.x_batches = self.x_batches[batch_size:]
+            self.y_batches = self.y_batches[batch_size:]
+
+            x_batch = torch.cat(x_batch)
+            y_batch = torch.cat(y_batch)
+
+            self.model.zero_grad()
+
+            out = self.model.forward(x_batch)
+            loss = self.criterion(out, y_batch)
+            losses.append(loss.detach().numpy())
+            loss.backward()
+            self.optimizer.step()
+
+        return losses
 
 
 class TabularPolicy(object):
