@@ -86,10 +86,11 @@ def prediction():
     k = 0
     gamma = 0.99
     agent = ApproximateAgent()
-    num_iterations = 10000
+    num_iterations = 10 ** 3
     agent.predict(environment, policy, algorithm,gamma=gamma, num_iterations=num_iterations, summary_writer=writer)
 
-    xxx = agent.v("15")
+    for i in range(environment.observation_space.n):
+        print(f"V({i}) = {agent.v(str(i))}")
 
     print("")
     pass

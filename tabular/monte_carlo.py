@@ -248,9 +248,9 @@ class MonteCarloAgent(object):
 
 
 def prediction():
-    policy = CustomPolicy.get_simple_blackjack_policy()
-    env_name = "Blackjack-v0"
-    algorithm = MCAlgorithm.OFF_POLICY_MC_PREDICTION
+    policy = TabularPolicy.sample_frozen_lake_policy()
+    env_name = "FrozenLake-v0"
+    algorithm = MCAlgorithm.MC_EVERY_VISIT_PREDICTION
     environment = gym.make(env_name)
 
     k = 0
@@ -310,4 +310,4 @@ def control():
 
 
 if __name__ == "__main__":
-    control()
+    prediction()
