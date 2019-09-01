@@ -55,21 +55,27 @@ class ApproximateAgent(object):
                 self.v.append_x_y_pair(state, g)
                 j -= 1
 
-            losses = self.v.approximate(batch_size)
-            if summary_writer is not None:
-                for l_idx, l in enumerate(losses):
-                    summary_writer.add_scalar(f"{summary_prefix}batch_loss", l, len(total_losses) + l_idx)
-
-            total_losses.extend(losses)
+            if len(self.v.x_batches) > batch_size:
+                losses = self.v.approximate(batch_size)
+                if summary_writer is not None:
+                    for l_idx, l in enumerate(losses):
+                        summary_writer.add_scalar(f"{summary_prefix}batch_loss", l, len(total_losses) + l_idx)
+                total_losses.extend(losses)
 
             i += 1
 
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
+        losses = self.v.approximate(batch_size)
+        if summary_writer is not None:
+            for l_idx, l in enumerate(losses):
+                summary_writer.add_scalar(f"{summary_prefix}batch_loss", l, len(total_losses) + l_idx)
+        total_losses.extend(losses)
+
         return total_losses
 
-    def semi_gradient_td0(self, env, policy, num_iterations=1000, gamma=0.99, alpha=0.1, summary_writer=None, summary_prefix=""):
+    def semi_gradient_td0(self, env, policy, num_iterations=1000, gamma=0.99, alpha=0.1, batch_size=32, summary_writer=None, summary_prefix=""):
         self.v = ApproximateValueFunction(env.observation_space.n, alpha)
         i = 0
 
@@ -89,12 +95,13 @@ class ApproximateAgent(object):
                 y = reward + gamma * self.v(new_state)
                 self.v.append_x_y_pair(state, y)
 
-                losses = self.v.approximate()
-                if summary_writer is not None:
-                    for l_idx, l in enumerate(losses):
-                        summary_writer.add_scalar(f"{summary_prefix}loss", l, len(total_losses) + l_idx)
-
-                total_losses.extend(losses)
+                if len(self.v.x_batches) > batch_size:
+                    losses = self.v.approximate(batch_size)
+                    if summary_writer is not None:
+                        for l_idx, l in enumerate(losses):
+                            summary_writer.add_scalar(f"{summary_prefix}loss", l, len(total_losses) + l_idx)
+                        logger.info(f"{sum(losses)/max(1, len(losses))}")
+                    total_losses.extend(losses)
 
                 state = new_state
 
@@ -103,19 +110,27 @@ class ApproximateAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
+        losses = self.v.approximate(batch_size)
+        if summary_writer is not None:
+            for l_idx, l in enumerate(losses):
+                summary_writer.add_scalar(f"{summary_prefix}batch_loss", l, len(total_losses) + l_idx)
+        total_losses.extend(losses)
+
     def predict(self, env, policy, algorithm, num_iterations, gamma=0.99, batch_size=32, alpha=0.01, summary_writer=None):
         if algorithm == OnPolicyAlgorithm.GRADIENT_MONTE_CARLO_PREDICTION:
             self.gradient_monte_carlo_prediction(env, policy, gamma=gamma, num_iterations=num_iterations, batch_size=batch_size, alpha=alpha, summary_writer=summary_writer)
         elif algorithm == OnPolicyAlgorithm.SEMI_GRADIENT_TD_0:
-            self.semi_gradient_td0(env, policy, num_iterations=num_iterations, gamma=gamma, alpha=alpha, summary_writer=summary_writer)
+            self.semi_gradient_td0(env, policy, num_iterations=num_iterations, gamma=gamma, alpha=alpha,
+                                   batch_size=batch_size, summary_writer=summary_writer)
         else:
             raise ValueError("Unknown Prediction Algorithm: {}".format(algorithm))
 
 
 def prediction():
+    # logging.basicConfig(level=logging.DEBUG)
     policy = TabularPolicy.sample_frozen_lake_policy()
     env_name = "FrozenLake-v0"
-    algorithm = OnPolicyAlgorithm.SEMI_GRADIENT_TD_0
+    algorithm = OnPolicyAlgorithm.GRADIENT_MONTE_CARLO_PREDICTION
     environment = gym.make(env_name)
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
@@ -123,8 +138,10 @@ def prediction():
     k = 0
     gamma = 0.99
     agent = ApproximateAgent()
-    num_iterations = 10 ** 3
-    agent.predict(environment, policy, algorithm,gamma=gamma, num_iterations=num_iterations, summary_writer=writer)
+    num_iterations = 10 ** 4
+    batch_size = 128
+    agent.predict(environment, policy, algorithm, gamma=gamma, num_iterations=num_iterations, batch_size=batch_size,
+                  summary_writer=writer)
 
     for i in range(environment.observation_space.n):
         print(f"V({i}) = {agent.v(str(i))}")

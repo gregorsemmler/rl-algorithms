@@ -77,21 +77,22 @@ class StateActionValueTable(object):
 
 class ApproximateValueFunction():
 
-    def __init__(self, n_states, learning_rate):
+    def __init__(self, n_states, learning_rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
         self.input_size = n_states
         self.hidden_size = self.input_size
+        self.device = device
         self.model = nn.Sequential(
             nn.Linear(self.input_size, self.hidden_size),
             nn.ReLU(inplace=True),
-            nn.Linear(self.hidden_size, 1))
+            nn.Linear(self.hidden_size, 1)).to(device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         self.criterion = nn.MSELoss()
         self.x_batches = []
         self.y_batches = []
 
     def __call__(self, state):
-        input = self.state_to_network_input(state)
+        input = self.state_to_network_input(state).to(self.device)
         output = self.model(input)
         return float(output.detach().cpu().numpy())
 
@@ -110,7 +111,7 @@ class ApproximateValueFunction():
         self.x_batches = [self.x_batches[i] for i in permutation]
         self.y_batches = [self.y_batches[i] for i in permutation]
 
-    def approximate(self, batch_size=1):
+    def approximate(self, batch_size):
         self.model.train()
         losses = []
 
@@ -121,14 +122,14 @@ class ApproximateValueFunction():
             self.x_batches = self.x_batches[batch_size:]
             self.y_batches = self.y_batches[batch_size:]
 
-            x_batch = torch.cat(x_batch)
-            y_batch = torch.cat(y_batch)
+            x_batch = torch.cat(x_batch).to(self.device)
+            y_batch = torch.cat(y_batch).to(self.device)
 
             self.model.zero_grad()
 
             out = self.model.forward(x_batch)
             loss = self.criterion(out, y_batch)
-            losses.append(loss.detach().numpy())
+            losses.append(loss.cpu().detach().numpy())
             loss.backward()
             self.optimizer.step()
 
