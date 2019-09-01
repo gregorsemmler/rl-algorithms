@@ -110,7 +110,7 @@ class ApproximateValueFunction():
         self.x_batches = [self.x_batches[i] for i in permutation]
         self.y_batches = [self.y_batches[i] for i in permutation]
 
-    def training(self, batch_size):
+    def approximate(self, batch_size=1):
         self.model.train()
         losses = []
 
