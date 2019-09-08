@@ -75,7 +75,7 @@ class StateActionValueTable(object):
         self.possible_actions = content["possible_actions"]
 
 
-class ApproximateValueFunction():
+class ApproximateValueFunction(object):
 
     def __init__(self, n_states, learning_rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
@@ -92,8 +92,8 @@ class ApproximateValueFunction():
         self.y_batches = []
 
     def __call__(self, state):
-        input = self.state_to_network_input(state).to(self.device)
-        output = self.model(input)
+        inp = self.state_to_network_input(state).to(self.device)
+        output = self.model(inp)
         return float(output.detach().cpu().numpy())
 
     def state_to_network_input(self, state, dtype="torch.FloatTensor"):
@@ -134,6 +134,91 @@ class ApproximateValueFunction():
             self.optimizer.step()
 
         return losses
+
+
+class ApproximateStateActionFunction(object):
+
+    def __init__(self, n_states, n_actions, learning_rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+        super().__init__()
+        self.input_size = n_states + n_actions
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.hidden_size = self.n_states
+        self.device = device
+        self.model = nn.Sequential(
+            nn.Linear(self.input_size, self.hidden_size),
+            nn.ReLU(inplace=True),
+            nn.Linear(self.hidden_size, 1)).to(device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.criterion = nn.MSELoss()
+        self.x_batches = []
+        self.y_batches = []
+
+    def __call__(self, state, action):
+        inp = self.state_action_to_network_input(state, action).to(self.device)
+        output = self.model(inp)
+        return float(output.detach().cpu().numpy())
+
+    def state_action_to_network_input(self, state, action, dtype="torch.FloatTensor"):
+        int_state = int(state)
+        one_hot_s = np.zeros((1, self.n_states))
+        one_hot_s[0, int_state] = 1
+        int_action = int(action)
+        one_hot_a = np.zeros((1, self.n_actions))
+        one_hot_a[0, int_action] = 1
+        inp = np.concatenate((one_hot_s, one_hot_a), axis=1)
+        return torch.from_numpy(inp).type(dtype)
+
+    def append_x_y_pair(self, state, action, y):
+        self.x_batches.append(self.state_action_to_network_input(state, action))
+        self.y_batches.append(torch.FloatTensor([[y]]))
+
+    def shuffle_batches(self):
+        permutation = np.random.permutation(len(self.x_batches))
+        self.x_batches = [self.x_batches[i] for i in permutation]
+        self.y_batches = [self.y_batches[i] for i in permutation]
+
+    def approximate(self, batch_size):
+        self.model.train()
+        losses = []
+
+        while len(self.x_batches) > 0:
+            x_batch = self.x_batches[:batch_size]
+            y_batch = self.y_batches[:batch_size]
+
+            self.x_batches = self.x_batches[batch_size:]
+            self.y_batches = self.y_batches[batch_size:]
+
+            x_batch = torch.cat(x_batch).to(self.device)
+            y_batch = torch.cat(y_batch).to(self.device)
+
+            self.model.zero_grad()
+
+            out = self.model.forward(x_batch)
+            loss = self.criterion(out, y_batch)
+            losses.append(loss.cpu().detach().numpy())
+            loss.backward()
+            self.optimizer.step()
+
+        return losses
+
+    def get_q_max_pair(self, state):
+        best_score = float("-inf")
+        best_action = -1
+
+        for action in range(self.n_actions):
+            out = self.__call__(state, action)
+
+            if out > best_score:
+                best_score = out
+                best_action = action
+        return best_action, best_score
+
+    def get_best_action(self, state):
+        return self.get_q_max_pair(state)[0]
+
+    def get_q_max(self, state):
+        return self.get_q_max_pair(state)[1]
 
 
 class TabularPolicy(object):
