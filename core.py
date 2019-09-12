@@ -3,6 +3,7 @@ import numpy as np
 import collections
 import torch
 from torch import nn, optim
+import torch.nn.functional as F
 
 
 class StateActionValueTable(object):
@@ -219,6 +220,81 @@ class ApproximateStateActionFunction(object):
 
     def get_q_max(self, state):
         return self.get_q_max_pair(state)[1]
+
+
+class ApproximatePolicy(object):
+
+    def __init__(self, n_states, n_actions, learning_rate, hidden_size=128, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+        super().__init__()
+        self.input_size = n_states
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.hidden_size = hidden_size
+        self.device = device
+        self.model = nn.Sequential(
+            nn.Linear(self.input_size, self.hidden_size),
+            nn.ReLU(inplace=True),
+            nn.Linear(self.hidden_size, self.n_actions)).to(device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.state_batches = []
+        self.action_batches = []
+        self.value_batches = []
+
+    def __call__(self, state):
+        action_probs = self.get_probabilities(state)
+        action = np.random.choice(self.n_actions, p=action_probs)
+        return action
+
+    def get_probabilities(self, state):
+        inp = self.state_to_network_input(state).to(self.device)
+        probs = self.model(inp)
+        probs = F.softmax(probs, dim=-1)
+        return probs.detach().cpu().numpy().squeeze()
+
+    def state_to_network_input(self, state, dtype="torch.FloatTensor"):
+        int_state = int(state)
+        one_hot_encoded = np.zeros((1, self.input_size))
+        one_hot_encoded[0, int_state] = 1
+        return torch.from_numpy(one_hot_encoded).type(dtype)
+
+    def append(self, state, action, value):
+        self.state_batches.append(self.state_to_network_input(state))
+        self.action_batches.append(action)
+        self.value_batches.append(torch.FloatTensor([value]))
+
+    def shuffle_batches(self):
+        permutation = np.random.permutation(len(self.state_batches))
+        self.state_batches = [self.state_batches[i] for i in permutation]
+        self.action_batches = [self.action_batches[i] for i in permutation]
+        self.value_batches = [self.value_batches[i] for i in permutation]
+
+    def policy_gradient_approximation(self, batch_size):
+        self.model.train()
+        losses = []
+
+        while len(self.state_batches) > 0:
+            state_batch = self.state_batches[:batch_size]
+            action_batch = self.action_batches[:batch_size]
+            value_batch = self.value_batches[:batch_size]
+
+            self.state_batches = self.state_batches[batch_size:]
+            self.action_batches = self.action_batches[batch_size:]
+            self.value_batches = self.value_batches[batch_size:]
+
+            state_batch = torch.cat(state_batch).to(self.device)
+            value_batch = torch.cat(value_batch).to(self.device)
+
+            self.model.zero_grad()
+
+            out = self.model.forward(state_batch)
+            action_log_prob = F.log_softmax(out, dim=1)
+            loss = value_batch * action_log_prob[range(len(action_log_prob)), action_batch]
+            loss = -loss.mean()
+            losses.append(loss.cpu().detach().numpy())
+            loss.backward()
+            self.optimizer.step()
+
+        return losses
 
 
 class TabularPolicy(object):

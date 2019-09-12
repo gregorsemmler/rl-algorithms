@@ -131,7 +131,7 @@ class ApproximateAgent(object):
                 episode_result.append(action, reward, new_state)
 
                 y = reward + gamma * self.v(new_state)
-                self.v.append_x_y_pair(state, y)
+                self.v.append(state, y)
 
                 if len(self.v.x_batches) > batch_size:
                     losses = self.v.approximate(batch_size)
