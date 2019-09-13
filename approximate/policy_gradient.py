@@ -19,12 +19,13 @@ logger = logging.getLogger(__file__)
 
 class PolicyGradientAlgorithm(Enum):
     REINFORCE = "REINFORCE"
+    REINFORCE_WITH_BASELINE = "REINFORCE_WITH_BASELINE"
 
 
 class PolicyGradientAgent(object):
 
     def __init__(self):
-        self.q = None
+        self.v = None
         self.policy = None
 
     def play(self, env, num_episodes=100, gamma=0.99, render=False):
@@ -109,6 +110,68 @@ class PolicyGradientAgent(object):
 
         return total_losses
 
+    # TODO test
+    def reinforce_with_baseline(self, env, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.01,
+                  summary_writer: SummaryWriter = None, summary_prefix=""):
+        self.policy = ApproximatePolicy(env.observation_space, env.action_space.n, alpha)
+        self.v = ApproximateValueFunction(env.observation_space, 0.5)
+        i = 0
+        total_p_losses = []
+        total_v_losses = []
+
+        while i < num_iterations:
+            state = env.reset()
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            while not done:
+                action = self.policy(state)
+                state, reward, done, _ = env.step(action)
+                episode_result.append(action, reward, state)
+
+            g = 0
+
+            j = len(episode_result.states) - 2
+            while j >= 0:
+                g = gamma * g + episode_result.rewards[j]
+                delta = g - self.v(state)
+                state = episode_result.states[j]
+                action = episode_result.actions[j]
+
+                self.v.append_x_y_pair(state, g)
+                # self.policy.append(state, action, delta)
+                # TODO test
+                self.policy.append(state, action, g)
+                j -= 1
+
+            if len(self.policy.state_batches) > batch_size:
+                p_losses = self.policy.policy_gradient_approximation(batch_size)
+                v_losses = self.v.approximate(batch_size)
+                if summary_writer is not None:
+                    for l_idx, l in enumerate(p_losses):
+                        summary_writer.add_scalar(f"{summary_prefix}batch_policy_loss", l, len(total_p_losses) + l_idx)
+                    for l_idx, l in enumerate(v_losses):
+                        summary_writer.add_scalar(f"{summary_prefix}batch_value_loss", l, len(total_v_losses) + l_idx)
+                total_p_losses.extend(p_losses)
+                total_v_losses.extend(v_losses)
+
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
+        p_losses = self.policy.policy_gradient_approximation(batch_size)
+        v_losses = self.v.approximate(batch_size)
+        if summary_writer is not None:
+            for l_idx, l in enumerate(p_losses):
+                summary_writer.add_scalar(f"{summary_prefix}batch_policy_loss", l, len(total_p_losses) + l_idx)
+            for l_idx, l in enumerate(v_losses):
+                summary_writer.add_scalar(f"{summary_prefix}batch_value_loss", l, len(total_v_losses) + l_idx)
+        total_p_losses.extend(p_losses)
+        total_v_losses.extend(v_losses)
+
+        return total_p_losses, total_v_losses
+
     def predict(self, env, policy, algorithm, num_iterations, n=2, gamma=0.99, batch_size=32, alpha=0.01, summary_writer=None):
         raise NotImplementedError()
 
@@ -116,6 +179,12 @@ class PolicyGradientAgent(object):
         if algorithm == PolicyGradientAlgorithm.REINFORCE:
             self.reinforce(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma, alpha=alpha,
                            summary_writer=summary_writer)
+        elif algorithm == PolicyGradientAlgorithm.REINFORCE_WITH_BASELINE:
+            self.reinforce_with_baseline(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma,
+                                         alpha=alpha,
+                                         summary_writer=summary_writer)
+        else:
+            raise ValueError(f"Unknown algorithm {algorithm}")
 
 
 def prediction():
@@ -149,7 +218,7 @@ def control():
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "CartPole-v0"
     # env_name = "FrozenLake-v0"
-    algorithm = PolicyGradientAlgorithm.REINFORCE
+    algorithm = PolicyGradientAlgorithm.REINFORCE_WITH_BASELINE
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
@@ -168,7 +237,7 @@ def control():
     test_returns = []
     num_iterations = 1000
     num_test_episodes = 100
-    batch_size = 128
+    batch_size = 64
     while True:
         agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate, epsilon=epsilon)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, render=True,

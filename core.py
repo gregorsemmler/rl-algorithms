@@ -79,9 +79,15 @@ class StateActionValueTable(object):
 
 class ApproximateValueFunction(object):
 
-    def __init__(self, n_states, learning_rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, observation_space, learning_rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
-        self.input_size = n_states
+        if isinstance(observation_space, box.Box):
+            self.discrete_state_space = False
+        elif isinstance(observation_space, discrete.Discrete):
+            self.discrete_state_space = True
+        else:
+            raise ValueError("Unsupported Observation Space")
+        self.input_size = observation_space.n if self.discrete_state_space else observation_space.shape[0]
         self.hidden_size = self.input_size
         self.device = device
         self.model = nn.Sequential(
@@ -99,10 +105,13 @@ class ApproximateValueFunction(object):
         return float(output.detach().cpu().numpy())
 
     def state_to_network_input(self, state, dtype="torch.FloatTensor"):
-        int_state = int(state)
-        one_hot_encoded = np.zeros((1, self.input_size))
-        one_hot_encoded[0, int_state] = 1
-        return torch.from_numpy(one_hot_encoded).type(dtype)
+        if self.discrete_state_space:
+            int_state = int(state)
+            state_np = np.zeros((1, self.input_size))
+            state_np[0, int_state] = 1
+        else:
+            state_np = state.reshape(1, -1)
+        return torch.from_numpy(state_np).type(dtype)
 
     def append_x_y_pair(self, state, y):
         self.x_batches.append(self.state_to_network_input(state))

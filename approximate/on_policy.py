@@ -67,7 +67,7 @@ class ApproximateAgent(object):
 
     def gradient_monte_carlo_prediction(self, env, policy, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.1,
                                         summary_writer: SummaryWriter = None, summary_prefix=""):
-        self.v = ApproximateValueFunction(env.observation_space.n, alpha)
+        self.v = ApproximateValueFunction(env.observation_space, alpha)
         i = 0
         total_losses = []
 
@@ -114,7 +114,7 @@ class ApproximateAgent(object):
         return total_losses
 
     def semi_gradient_td0(self, env, policy, num_iterations=1000, gamma=0.99, alpha=0.1, batch_size=32, summary_writer=None, summary_prefix=""):
-        self.q = ApproximateValueFunction(env.observation_space.n, alpha)
+        self.q = ApproximateValueFunction(env.observation_space, alpha)
         i = 0
 
         total_losses = []
@@ -156,7 +156,7 @@ class ApproximateAgent(object):
 
     def n_step_semi_gradient_td(self, env, n, policy, alpha=0.01, gamma=0.99, num_iterations=1000, batch_size=32,
                                 summary_writer=None, summary_prefix=""):
-        self.v = ApproximateValueFunction(env.observation_space.n, alpha)
+        self.v = ApproximateValueFunction(env.observation_space, alpha)
         i = 0
 
         total_losses = []
