@@ -24,7 +24,6 @@ class PolicyGradientAlgorithm(Enum):
 class PolicyGradientAgent(object):
 
     def __init__(self):
-        # self.v = None
         self.q = None
         self.policy = None
 
@@ -35,7 +34,6 @@ class PolicyGradientAgent(object):
         episode_returns = []
         while i < num_episodes:
             state = env.reset()
-            state = str(state)
             done = False
 
             episode_result = EpisodeResult(env, state)
@@ -45,7 +43,6 @@ class PolicyGradientAgent(object):
 
                 action = self.policy(state)
                 new_state, reward, done, info = env.step(action)
-                new_state = str(new_state)
 
                 episode_result.append(action, reward, new_state)
 
@@ -60,24 +57,25 @@ class PolicyGradientAgent(object):
             episode_returns.append(episode_return)
             i += 1
 
+            logger.info(f"Episode Return: {episode_return}")
+            logger.info(f"Episode Length: {len(episode_result.states)}")
+        env.close()
         return episode_returns, best_result, best_return
 
     def reinforce(self, env, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.01,
                   summary_writer: SummaryWriter = None, summary_prefix=""):
-        self.policy = ApproximatePolicy(env.observation_space.n, env.action_space.n, alpha)
+        self.policy = ApproximatePolicy(env.observation_space, env.action_space.n, alpha)
         i = 0
         total_losses = []
 
         while i < num_iterations:
             state = env.reset()
-            state = str(state)
             done = False
             episode_result = EpisodeResult(env, state)
 
             while not done:
                 action = self.policy(state)
                 state, reward, done, _ = env.step(action)
-                state = str(state)
                 episode_result.append(action, reward, state)
 
             g = 0
@@ -146,9 +144,11 @@ def prediction():
 
 
 def control():
+    logging.basicConfig(level=logging.INFO)
     policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
-    env_name = "FrozenLake-v0"
+    env_name = "CartPole-v0"
+    # env_name = "FrozenLake-v0"
     algorithm = PolicyGradientAlgorithm.REINFORCE
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
@@ -157,7 +157,7 @@ def control():
     k = 0
     goal_returns = env_spec.reward_threshold
     gamma = 0.99
-    alpha = 0.5
+    learning_rate = 0.01
     epsilon = 0.01
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
@@ -170,8 +170,9 @@ def control():
     num_test_episodes = 100
     batch_size = 128
     while True:
-        agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=alpha, epsilon=epsilon)
-        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, gamma=gamma,
+        agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate, epsilon=epsilon)
+        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, render=True,
+                                                                                        gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
             writer.add_scalar("test_return", r, len(test_returns) + r_idx)
