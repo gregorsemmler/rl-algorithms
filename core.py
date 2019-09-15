@@ -286,9 +286,15 @@ class ApproximatePolicy(object):
         self.action_batches = [self.action_batches[i] for i in permutation]
         self.value_batches = [self.value_batches[i] for i in permutation]
 
-    def policy_gradient_approximation(self, batch_size):
+    # TODO
+    def policy_gradient_approximation(self, batch_size, mean_baseline=False):
         self.model.train()
         losses = []
+
+        if mean_baseline and len(self.value_batches) > 0:
+            mean = torch.cat(self.value_batches).mean().detach()
+        else:
+            mean = None
 
         while len(self.state_batches) > 0:
             state_batch = self.state_batches[:batch_size]
@@ -301,6 +307,9 @@ class ApproximatePolicy(object):
 
             state_batch = torch.cat(state_batch).to(self.device)
             value_batch = torch.cat(value_batch).to(self.device)
+
+            if mean_baseline and mean is not None:
+                value_batch = value_batch - mean
 
             self.model.zero_grad()
 

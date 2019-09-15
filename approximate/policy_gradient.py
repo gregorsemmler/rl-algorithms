@@ -4,6 +4,7 @@ from enum import Enum
 import torch
 from torch import optim, nn
 import gym
+import gym.wrappers
 import numpy as np
 import re
 from math import inf
@@ -87,7 +88,8 @@ class PolicyGradientAgent(object):
                 state = episode_result.states[j]
                 action = episode_result.actions[j]
 
-                self.policy.append(state, action, g)
+                discounted = gamma ** j * g
+                self.policy.append(state, action, discounted)
                 j -= 1
 
             if len(self.policy.state_batches) > batch_size:
@@ -114,10 +116,11 @@ class PolicyGradientAgent(object):
     def reinforce_with_baseline(self, env, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.01,
                   summary_writer: SummaryWriter = None, summary_prefix=""):
         self.policy = ApproximatePolicy(env.observation_space, env.action_space.n, alpha)
-        self.v = ApproximateValueFunction(env.observation_space, 0.5)
+        self.v = ApproximateValueFunction(env.observation_space, alpha)
         i = 0
         total_p_losses = []
         total_v_losses = []
+        total_returns = []
 
         while i < num_iterations:
             state = env.reset()
@@ -131,21 +134,30 @@ class PolicyGradientAgent(object):
 
             g = 0
 
+            # TODO test
+            ep_return = episode_result.calculate_return(gamma)
+            total_returns.append(ep_return)
+            print(f"{i}: Length: {len(episode_result.states) - 1} \t Return: {ep_return:.2f} \t 100 Average: {np.array(total_returns[-100:]).mean():.2f}")
+
             j = len(episode_result.states) - 2
             while j >= 0:
                 g = gamma * g + episode_result.rewards[j]
-                delta = g - self.v(state)
+                v_state = self.v(state)
+                delta = g - v_state
                 state = episode_result.states[j]
                 action = episode_result.actions[j]
 
                 self.v.append_x_y_pair(state, g)
-                # self.policy.append(state, action, delta)
+                discounted = gamma ** j * delta
+                self.policy.append(state, action, discounted)
                 # TODO test
-                self.policy.append(state, action, g)
+                # self.policy.append(state, action, g - 5.0)
+                # print(f"v: {v_state}")
                 j -= 1
 
             if len(self.policy.state_batches) > batch_size:
-                p_losses = self.policy.policy_gradient_approximation(batch_size)
+                # TODO test
+                p_losses = self.policy.policy_gradient_approximation(batch_size, mean_baseline=False)
                 v_losses = self.v.approximate(batch_size)
                 if summary_writer is not None:
                     for l_idx, l in enumerate(p_losses):
@@ -160,7 +172,8 @@ class PolicyGradientAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
-        p_losses = self.policy.policy_gradient_approximation(batch_size)
+        # TODO test
+        p_losses = self.policy.policy_gradient_approximation(batch_size, mean_baseline=False)
         v_losses = self.v.approximate(batch_size)
         if summary_writer is not None:
             for l_idx, l in enumerate(p_losses):
@@ -175,7 +188,7 @@ class PolicyGradientAgent(object):
     def predict(self, env, policy, algorithm, num_iterations, n=2, gamma=0.99, batch_size=32, alpha=0.01, summary_writer=None):
         raise NotImplementedError()
 
-    def learn(self, env, algorithm, num_iterations, gamma=0.99, batch_size=32, alpha=0.01, epsilon=0.1, policy=None, summary_writer=None):
+    def learn(self, env, algorithm, num_iterations, gamma=0.99, batch_size=32, alpha=0.01, summary_writer=None):
         if algorithm == PolicyGradientAlgorithm.REINFORCE:
             self.reinforce(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma, alpha=alpha,
                            summary_writer=summary_writer)
@@ -187,29 +200,6 @@ class PolicyGradientAgent(object):
             raise ValueError(f"Unknown algorithm {algorithm}")
 
 
-def prediction():
-    # logging.basicConfig(level=logging.DEBUG)
-    policy = TabularPolicy.sample_frozen_lake_policy()
-    env_name = "FrozenLake-v0"
-    algorithm = PolicyGradientAlgorithm.REINFORCE
-    environment = gym.make(env_name)
-
-    writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
-
-    gamma = 0.99
-    agent = PolicyGradientAgent()
-    num_iterations = 10 ** 4
-    batch_size = 16
-    n = 3
-    alpha = 0.01
-    agent.predict(environment, policy, algorithm, n=n, alpha=alpha, gamma=gamma, num_iterations=num_iterations, batch_size=batch_size,
-                  summary_writer=writer)
-
-    for i in range(environment.observation_space.n):
-        print(f"V({i}) = {agent.v(str(i))}")
-
-    print("")
-    pass
 
 
 def control():
@@ -226,8 +216,7 @@ def control():
     k = 0
     goal_returns = env_spec.reward_threshold
     gamma = 0.99
-    learning_rate = 0.01
-    epsilon = 0.01
+    learning_rate = 0.001
 
     writer = SummaryWriter(comment="-{}-{}".format(env_name, algorithm))
 
@@ -235,11 +224,11 @@ def control():
     agent = PolicyGradientAgent()
     test_best_result, test_best_return = None, float("-inf")
     test_returns = []
-    num_iterations = 1000
+    num_iterations = 10 ** 3
     num_test_episodes = 100
-    batch_size = 64
+    batch_size = 16
     while True:
-        agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate, epsilon=epsilon)
+        agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, render=True,
                                                                                         gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
@@ -266,4 +255,5 @@ def control():
 
 if __name__ == "__main__":
     control()
+    # x = gym.wrappers.Monitor()
     print("")
