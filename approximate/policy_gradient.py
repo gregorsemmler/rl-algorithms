@@ -21,6 +21,7 @@ logger = logging.getLogger(__file__)
 class PolicyGradientAlgorithm(Enum):
     REINFORCE = "REINFORCE"
     REINFORCE_WITH_BASELINE = "REINFORCE_WITH_BASELINE"
+    ONE_STEP_ACTOR_CRTITIC = "ONE_STEP_ACTOR_CRITIC"
 
 
 class PolicyGradientAgent(object):
@@ -188,6 +189,82 @@ class PolicyGradientAgent(object):
 
         return total_p_losses, total_v_losses
 
+    # TODO test
+    def one_step_actor_critic(self, env, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.01,
+                                summary_writer: SummaryWriter = None, summary_prefix=""):
+        self.policy = ApproximatePolicy(env.observation_space, env.action_space.n, alpha)
+        self.v = ApproximateValueFunction(env.observation_space, alpha)
+        i = 0
+        total_p_losses = []
+        total_v_losses = []
+        episode_returns = []
+        episode_lengths = []
+
+        while i < num_iterations:
+            state = env.reset()
+            done = False
+            episode_result = EpisodeResult(env, state)
+
+            discount_factor = 1.0
+            while not done:
+                action = self.policy(state)
+                new_state, reward, done, _ = env.step(action)
+                episode_result.append(action, reward, state)
+
+                v_state, v_new_state = self.v(state), self.v(new_state)
+                if done:
+                    delta = reward # value of terminal states (v_new_state) should be zero
+                else:
+                    delta = reward + gamma * v_new_state
+
+                self.v.append_x_y_pair(state, delta)
+                self.policy.append(state, action, discount_factor * delta)
+
+                if len(self.policy.state_batches) > batch_size:
+                    p_losses = self.policy.policy_gradient_approximation(batch_size)
+                    v_losses = self.v.approximate(batch_size)
+                    if summary_writer is not None:
+                        for l_idx, l in enumerate(p_losses):
+                            summary_writer.add_scalar(f"{summary_prefix}batch_policy_loss", l, len(total_p_losses) + l_idx)
+                        for l_idx, l in enumerate(v_losses):
+                            summary_writer.add_scalar(f"{summary_prefix}batch_value_loss", l, len(total_v_losses) + l_idx)
+                    total_p_losses.extend(p_losses)
+                    total_v_losses.extend(v_losses)
+
+                discount_factor *= gamma
+                state = new_state
+
+            ep_return = episode_result.calculate_return(gamma)
+            ep_length = len(episode_result.states) - 1
+
+            if summary_writer is not None:
+                summary_writer.add_scalar(f"{summary_prefix}episode_length", ep_length, len(episode_lengths))
+                summary_writer.add_scalar(f"{summary_prefix}episode_return", ep_return, len(episode_returns))
+
+            episode_returns.append(ep_return)
+            episode_lengths.append(ep_length)
+            last_100_average = np.array(episode_returns[-100:]).mean()
+
+            logger.info(
+                f"{i}: Length: {ep_length} \t Return: {ep_return:.2f} \t Last 100 Average: {last_100_average:.2f}")
+
+            i += 1
+
+            if i % 100 == 0:
+                print("{} iterations done".format(i))
+
+        p_losses = self.policy.policy_gradient_approximation(batch_size)
+        v_losses = self.v.approximate(batch_size)
+        if summary_writer is not None:
+            for l_idx, l in enumerate(p_losses):
+                summary_writer.add_scalar(f"{summary_prefix}batch_policy_loss", l, len(total_p_losses) + l_idx)
+            for l_idx, l in enumerate(v_losses):
+                summary_writer.add_scalar(f"{summary_prefix}batch_value_loss", l, len(total_v_losses) + l_idx)
+        total_p_losses.extend(p_losses)
+        total_v_losses.extend(v_losses)
+
+        return total_p_losses, total_v_losses
+
     def predict(self, env, policy, algorithm, num_iterations, n=2, gamma=0.99, batch_size=32, alpha=0.01,
                 summary_writer=None):
         raise NotImplementedError()
@@ -200,6 +277,10 @@ class PolicyGradientAgent(object):
             self.reinforce_with_baseline(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma,
                                          alpha=alpha,
                                          summary_writer=summary_writer)
+        elif algorithm == PolicyGradientAlgorithm.ONE_STEP_ACTOR_CRTITIC:
+            self.one_step_actor_critic(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma,
+                                       alpha=alpha,
+                                       summary_writer=summary_writer)
         else:
             raise ValueError(f"Unknown algorithm {algorithm}")
 
