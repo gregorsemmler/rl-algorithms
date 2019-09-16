@@ -112,15 +112,15 @@ class PolicyGradientAgent(object):
 
         return total_losses
 
-    # TODO test
     def reinforce_with_baseline(self, env, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.01,
-                  summary_writer: SummaryWriter = None, summary_prefix=""):
+                                summary_writer: SummaryWriter = None, summary_prefix=""):
         self.policy = ApproximatePolicy(env.observation_space, env.action_space.n, alpha)
         self.v = ApproximateValueFunction(env.observation_space, alpha)
         i = 0
         total_p_losses = []
         total_v_losses = []
-        total_returns = []
+        episode_returns = []
+        episode_lengths = []
 
         while i < num_iterations:
             state = env.reset()
@@ -132,13 +132,21 @@ class PolicyGradientAgent(object):
                 state, reward, done, _ = env.step(action)
                 episode_result.append(action, reward, state)
 
-            g = 0
-
-            # TODO test
             ep_return = episode_result.calculate_return(gamma)
-            total_returns.append(ep_return)
-            print(f"{i}: Length: {len(episode_result.states) - 1} \t Return: {ep_return:.2f} \t 100 Average: {np.array(total_returns[-100:]).mean():.2f}")
+            ep_length = len(episode_result.states) - 1
 
+            if summary_writer is not None:
+                summary_writer.add_scalar(f"{summary_prefix}episode_length", ep_length, len(episode_lengths))
+                summary_writer.add_scalar(f"{summary_prefix}episode_return", ep_return, len(episode_returns))
+
+            episode_returns.append(ep_return)
+            episode_lengths.append(ep_length)
+            last_100_average = np.array(episode_returns[-100:]).mean()
+
+            logger.info(
+                f"{i}: Length: {ep_length} \t Return: {ep_return:.2f} \t Last 100 Average: {last_100_average:.2f}")
+
+            g = 0
             j = len(episode_result.states) - 2
             while j >= 0:
                 g = gamma * g + episode_result.rewards[j]
@@ -150,14 +158,10 @@ class PolicyGradientAgent(object):
                 self.v.append_x_y_pair(state, g)
                 discounted = gamma ** j * delta
                 self.policy.append(state, action, discounted)
-                # TODO test
-                # self.policy.append(state, action, g - 5.0)
-                # print(f"v: {v_state}")
                 j -= 1
 
             if len(self.policy.state_batches) > batch_size:
-                # TODO test
-                p_losses = self.policy.policy_gradient_approximation(batch_size, mean_baseline=False)
+                p_losses = self.policy.policy_gradient_approximation(batch_size)
                 v_losses = self.v.approximate(batch_size)
                 if summary_writer is not None:
                     for l_idx, l in enumerate(p_losses):
@@ -172,8 +176,7 @@ class PolicyGradientAgent(object):
             if i % 100 == 0:
                 print("{} iterations done".format(i))
 
-        # TODO test
-        p_losses = self.policy.policy_gradient_approximation(batch_size, mean_baseline=False)
+        p_losses = self.policy.policy_gradient_approximation(batch_size)
         v_losses = self.v.approximate(batch_size)
         if summary_writer is not None:
             for l_idx, l in enumerate(p_losses):
@@ -185,7 +188,8 @@ class PolicyGradientAgent(object):
 
         return total_p_losses, total_v_losses
 
-    def predict(self, env, policy, algorithm, num_iterations, n=2, gamma=0.99, batch_size=32, alpha=0.01, summary_writer=None):
+    def predict(self, env, policy, algorithm, num_iterations, n=2, gamma=0.99, batch_size=32, alpha=0.01,
+                summary_writer=None):
         raise NotImplementedError()
 
     def learn(self, env, algorithm, num_iterations, gamma=0.99, batch_size=32, alpha=0.01, summary_writer=None):
@@ -200,11 +204,8 @@ class PolicyGradientAgent(object):
             raise ValueError(f"Unknown algorithm {algorithm}")
 
 
-
-
 def control():
     logging.basicConfig(level=logging.INFO)
-    policy = TabularPolicy.sample_frozen_lake_policy()
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "CartPole-v0"
     # env_name = "FrozenLake-v0"
@@ -228,7 +229,8 @@ def control():
     num_test_episodes = 100
     batch_size = 16
     while True:
-        agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate)
+        agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate,
+                    summary_writer=writer)
         round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, render=True,
                                                                                         gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
@@ -255,5 +257,4 @@ def control():
 
 if __name__ == "__main__":
     control()
-    # x = gym.wrappers.Monitor()
     print("")
