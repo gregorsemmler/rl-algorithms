@@ -3,8 +3,8 @@ from enum import Enum
 
 import gym
 import logging
-from tensorboardX import SummaryWriter
 from gym import envs
+from torch.utils.tensorboard import SummaryWriter
 
 from core import TabularPolicy, EpisodeResult, EnvironmentModel, EpsilonGreedyTabularPolicy
 

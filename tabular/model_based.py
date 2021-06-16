@@ -6,8 +6,8 @@ import numpy as np
 import queue
 from math import inf, sqrt
 import logging
-from tensorboardX import SummaryWriter
 from gym import envs
+from torch.utils.tensorboard import SummaryWriter
 
 from core import EnvironmentModel, TabularPolicy, StateActionValueTable, EpsilonGreedyTabularPolicy, EpisodeResult
 

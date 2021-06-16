@@ -588,5 +588,3 @@ class EnvironmentModel(object):
 
         if done:
             self.terminal_states.add(new_state)
-
-
