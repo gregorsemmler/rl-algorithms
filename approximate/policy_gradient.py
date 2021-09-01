@@ -21,7 +21,7 @@ logger = logging.getLogger(__file__)
 class PolicyGradientAlgorithm(Enum):
     REINFORCE = "REINFORCE"
     REINFORCE_WITH_BASELINE = "REINFORCE_WITH_BASELINE"
-    ONE_STEP_ACTOR_CRTITIC = "ONE_STEP_ACTOR_CRITIC"
+    ONE_STEP_ACTOR_CRITIC = "ONE_STEP_ACTOR_CRITIC"
 
 
 class PolicyGradientAgent(object):
@@ -189,9 +189,8 @@ class PolicyGradientAgent(object):
 
         return total_p_losses, total_v_losses
 
-    # TODO test
     def one_step_actor_critic(self, env, num_iterations=10000, batch_size=32, gamma=0.99, alpha=0.01,
-                                summary_writer: SummaryWriter = None, summary_prefix=""):
+                              summary_writer: SummaryWriter = None, summary_prefix=""):
         self.policy = ApproximatePolicy(env.observation_space, env.action_space.n, alpha)
         self.v = ApproximateValueFunction(env.observation_space, alpha)
         i = 0
@@ -277,7 +276,7 @@ class PolicyGradientAgent(object):
             self.reinforce_with_baseline(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma,
                                          alpha=alpha,
                                          summary_writer=summary_writer)
-        elif algorithm == PolicyGradientAlgorithm.ONE_STEP_ACTOR_CRTITIC:
+        elif algorithm == PolicyGradientAlgorithm.ONE_STEP_ACTOR_CRITIC:
             self.one_step_actor_critic(env, num_iterations=num_iterations, batch_size=batch_size, gamma=gamma,
                                        alpha=alpha,
                                        summary_writer=summary_writer)
@@ -290,7 +289,7 @@ def control():
     env_names = sorted(envs.registry.env_specs.keys())
     env_name = "CartPole-v0"
     # env_name = "FrozenLake-v0"
-    algorithm = PolicyGradientAlgorithm.REINFORCE_WITH_BASELINE
+    algorithm = PolicyGradientAlgorithm.ONE_STEP_ACTOR_CRITIC
     env_spec = envs.registry.env_specs[env_name]
     environment = gym.make(env_name)
     test_env = gym.make(env_name)
