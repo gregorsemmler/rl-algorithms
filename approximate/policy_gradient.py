@@ -212,11 +212,12 @@ class PolicyGradientAgent(object):
 
                 v_state, v_new_state = self.v(state), self.v(new_state)
                 if done:
-                    delta = reward # value of terminal states (v_new_state) should be zero
+                    one_step_return = reward  # value of terminal states (v_new_state) should be zero
                 else:
-                    delta = reward + gamma * v_new_state
+                    one_step_return = reward + gamma * v_new_state
 
-                self.v.append_x_y_pair(state, delta)
+                delta = one_step_return - v_state
+                self.v.append_x_y_pair(state, one_step_return)
                 self.policy.append(state, action, discount_factor * delta)
 
                 if len(self.policy.state_batches) > batch_size:
@@ -311,7 +312,7 @@ def control():
     while True:
         agent.learn(environment, algorithm, num_iterations, gamma=gamma, batch_size=batch_size, alpha=learning_rate,
                     summary_writer=writer)
-        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, render=True,
+        round_test_returns, round_test_best_result, round_test_best_return = agent.play(test_env, render=False,
                                                                                         gamma=gamma,
                                                                                         num_episodes=num_test_episodes)
         for r_idx, r in enumerate(round_test_returns):
